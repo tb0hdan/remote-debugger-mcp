@@ -33,7 +33,7 @@ go run .
 See [pprof documentation](https://pkg.go.dev/net/http/pprof) for details on how to run your application with profiling enabled.
 
 
-## Sample Claude usage
+## Sample agent usage
 
 ```
 pprof Host=192.168.4.15 Profile=heap 
