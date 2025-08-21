@@ -6,11 +6,21 @@ This is a Model Context Protocol (MCP) server that provides a remote debugger to
 
 Available tools: pprof
 
-## Adding to Claude
+## Adding to coding agents
+
+### Claude Code
 
 ```bash
  claude mcp add --transport http remote-debugger-mcp http://localhost:8899/mcp
 ```
+
+### Gemini CLI
+
+```bash
+gemini mcp add remote-debugger-mcp http://localhost:8899/mcp -t http
+```
+
+
 
 ## Running the Server
 
