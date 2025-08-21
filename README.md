@@ -21,3 +21,16 @@ go run .
 ## Running application with profiling
 
 See [pprof documentation](https://pkg.go.dev/net/http/pprof) for details on how to run your application with profiling enabled.
+
+
+## Sample Claude usage
+
+```
+pprof Host=192.168.4.15 Profile=heap 
+```
+
+or even
+
+```
+Run available pprof profiles for host 192.168.4.15 and aggregate data
+```
