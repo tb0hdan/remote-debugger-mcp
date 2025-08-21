@@ -1,90 +1,22 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
-	"log"
 	"net/http"
-	"os"
-	"os/exec"
-	"strconv"
-	"strings"
 	_ "net/http/pprof"
+	"os"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/rs/zerolog"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/profiler"
 )
 
-type PprofInput struct {
-	Host    string `json:"host,omitempty"`
-	Port    int    `json:"port,omitempty"`
-	Profile string `json:"profile,omitempty"`
-	Seconds int    `json:"seconds,omitempty"`
-}
-
-type PprofOutput struct {
-	URL         string `json:"url"`
-	Status      int    `json:"status"`
-	ContentType string `json:"content_type"`
-	Size        int    `json:"size"`
-	Content     string `json:"content"`
-}
-
-func pprofHandler(_ context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[PprofInput]) (*mcp.CallToolResultFor[PprofOutput], error) {
-	input := params.Arguments
-
-	host := "localhost"
-	if input.Host != "" {
-		host = input.Host
-	}
-
-	port := 6060
-	if input.Port != 0 {
-		port = input.Port
-	}
-
-	profile := "heap"
-	if input.Profile != "" {
-		profile = input.Profile
-	}
-
-	seconds := 30
-	if input.Seconds != 0 {
-		seconds = input.Seconds
-	}
-
-	baseURL := fmt.Sprintf("http://%s:%d/debug/pprof/", host, port)
-
-	var profileURL string
-	switch profile {
-	case "profile":
-		profileURL = fmt.Sprintf("%sprofile?seconds=%d", baseURL, seconds)
-	default:
-		profileURL = baseURL + profile
-	}
-
-        fmt.Println(profileURL)
-	args := []string{"tool", "pprof", "-top", profileURL}
-	cmd := exec.Command("go", args...)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute go tool pprof: %w\nOutput: %s", err, string(output))
-	}
-
-	result := &mcp.CallToolResultFor[PprofOutput]{
-		Content: []mcp.Content{
-			&mcp.TextContent{
-				Text: fmt.Sprintf("go tool pprof output for %s:\n\n%s", profileURL, strings.TrimSpace(string(output))),
-			},
-		},
-	}
-
-	return result, nil
-}
-
-func createServer() *mcp.Server {
+func createServer(logger zerolog.Logger) *mcp.Server {
 	impl := &mcp.Implementation{
-		Name:    "go-mcp",
+		Name:    "remote-debugger-mcp",
 		Version: "1.0.0",
 	}
 
@@ -95,27 +27,27 @@ func createServer() *mcp.Server {
 		Description: "Executes go tool pprof to analyze profiling data from another application",
 	}
 
-	mcp.AddTool(server, pprofTool, pprofHandler)
+	tool := profiler.NewPprofTool(logger)
+	mcp.AddTool(server, pprofTool, tool.PprofHandler)
 
 	return server
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
 func main() {
-	port := 8899
-	if portStr := getEnv("PORT", ""); portStr != "" {
-		if p, err := strconv.Atoi(portStr); err == nil {
-			port = p
-		}
-	}
+	var (
+		debug bool
+		port  int
+	)
+	flag.BoolVar(&debug, "debug", false, "debug mode")
+	flag.IntVar(&port, "port", 8899, "server port")
+	flag.Parse()
 
-	server := createServer()
+	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
+	if debug {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		logger.Debug().Msg("debug mode enabled")
+	}
+	server := createServer(logger)
 
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
@@ -126,7 +58,7 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"service": "MCP Pprof Connector",
+			"service": "Remote Debugger MCP Connector",
 			"version": "1.0.0",
 			"endpoints": map[string]string{
 				"mcp": "/mcp",
@@ -134,10 +66,10 @@ func main() {
 		})
 	})
 
-	log.Printf("MCP Pprof Connector starting on port %d", port)
-	log.Printf("MCP endpoint available at: http://localhost:%d/mcp", port)
+	logger.Info().Msgf("Remote Debugger MCP Connector starting on port %d", port)
+	logger.Info().Msgf("MCP endpoint available at: http://localhost:%d/mcp", port)
 
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
-		log.Fatal("Server failed to start:", err)
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); !errors.Is(err, http.ErrServerClosed) {
+		logger.Fatal().Msgf("Server failed to start:", err)
 	}
 }
