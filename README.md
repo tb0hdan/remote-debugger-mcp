@@ -4,7 +4,10 @@ This is a Model Context Protocol (MCP) server that provides a remote debugger to
 
 ## Project Overview
 
-Available tools: pprof
+Available tools:
+
+- [delve](https://github.com/go-delve/delve)
+- [pprof](https://pkg.go.dev/net/http/pprof)
 
 ## Adding to coding agents
 
@@ -24,16 +27,55 @@ gemini mcp add remote-debugger-mcp http://localhost:8899/mcp -t http
 
 ## Running the Server
 
+You need to build it once using the following command:
 ```bash
-go run .
+make
 ```
 
-## Running application with profiling
+then just
+
+```bash
+build/remote-debugger-mcp
+```
+
+
+## Tools usage 
+
+### delve
+
+Running application with delve debugger
+
+```bash
+dlv debug --accept-multiclient --headless --listen=:2345
+```
+
+or even with PID (for example, 862262)
+
+```bash
+dlv attach 862262 --accept-multiclient --headless --listen=:2345
+```
+
+Sample agent usage
+
+```
+delve Command=help
+```
+
+
+### pprof
+
+Running application with profiling
 
 See [pprof documentation](https://pkg.go.dev/net/http/pprof) for details on how to run your application with profiling enabled.
 
 
-## Sample agent usage
+Sample agent usage
+
+```
+List available pprof profiles for port 8899
+```
+
+or
 
 ```
 pprof Host=192.168.4.15 Profile=heap 
