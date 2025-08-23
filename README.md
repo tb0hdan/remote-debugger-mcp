@@ -8,6 +8,7 @@ Available tools:
 
 - [delve](https://github.com/go-delve/delve)
 - [pprof](https://pkg.go.dev/net/http/pprof)
+- sysinfo - both local and remote system information via SSH
 
 ## Adding to coding agents
 
@@ -85,6 +86,41 @@ or even
 
 ```
 Run available pprof profiles for host 192.168.4.15 and aggregate data
+```
+
+### sshexec
+
+# Kill specific PID
+```
+sshexec Host=192.168.1.100 KillPID=12345
+```
+
+# Kill by process name
+```
+sshexec Host=192.168.1.100 KillByName=remote-debugger-mcp
+```
+
+# Kill with specific signal
+```
+sshexec Host=192.168.1.100 KillByName=myapp KillSignal=KILL
+```
+
+### Sysinfo
+
+```
+sysinfo
+```
+or
+
+```
+sysinfo Host=192.168.4.15
+```
+
+### Combined usage (tested on Claude)
+
+```
+ Build this project locally and then transfer it to remote host using sshexec tool. Run it there with -bind 192.168.4.15:8899. Then fetch profiling information using pprof tool, show it here, terminate 
+  remote binary.
 ```
 
 ## Similar projects

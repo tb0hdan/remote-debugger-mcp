@@ -6,7 +6,7 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 
 **Current Version:** 1.0.0  
 **Language:** Go 1.24  
-**License:** Not specified
+**License:** BSD 3-Clause
 
 ## Architecture
 
@@ -24,7 +24,12 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 
 3. **Available Tools:**
    - **Delve Tool** (`pkg/tools/delve/delve.go`) - Remote Go debugger integration
-   - **Profiler Tool** (`pkg/tools/profiler/profiler.go`) - pprof integration
+   - **pprof Tool** (`pkg/tools/pprof/pprof.go`) - Go profiling integration
+   - **SSH Exec Tool** (`pkg/tools/sshexec/sshexec.go`) - Remote binary execution via SSH
+   - **System Info Tool** (`pkg/tools/sysinfo/sysinfo.go`) - System information gathering
+
+4. **Connectors:**
+   - **SSH Connector** (`pkg/connectors/ssh/ssh.go`) - SSH connection management for remote operations
 
 ### Dependencies
 
@@ -70,6 +75,64 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 - `max_lines` (optional): Pagination limit (default: 100)
 - `offset` (optional): Line offset for pagination
 
+### 3. SSH Exec Tool
+
+**Purpose:** Transfer and execute binaries on remote hosts via SSH, or kill remote processes
+
+**Features:**
+- Secure binary transfer to remote hosts
+- Remote execution with argument passing
+- Automatic cleanup of transferred binaries (optional)
+- Support for custom remote paths
+- Output capture with pagination
+- Exit code reporting
+- **NEW:** Kill remote processes by PID or name pattern
+- **NEW:** Configurable kill signals (TERM, KILL, etc.)
+- Background process execution and management
+
+**Input Parameters:**
+
+*For binary execution:*
+- `host` (required): SSH target host
+- `port` (optional): SSH port (default: 22)
+- `user` (optional): SSH user (default: current user)
+- `binary_path` (required for exec): Local binary path to transfer
+- `remote_path` (optional): Remote destination path (default: /tmp/<filename>)
+- `args` (optional): Arguments to pass to the binary
+- `keep_binary` (optional): Keep binary after execution (default: false)
+- `run_in_background` (optional): Run process in background (default: false)
+- `max_lines` (optional): Maximum lines to return (default: 1000)
+- `offset` (optional): Line offset for pagination
+
+*For process killing (mutually exclusive with exec mode):*
+- `host` (required): SSH target host
+- `port` (optional): SSH port (default: 22)
+- `user` (optional): SSH user (default: current user)
+- `kill_pid` (optional): PID to kill on remote host (mutually exclusive with kill_by_name)
+- `kill_by_name` (optional): Kill processes by name pattern (mutually exclusive with kill_pid)
+- `kill_signal` (optional): Signal to send when killing (default: TERM)
+- `max_lines` (optional): Maximum lines to return (default: 1000)
+- `offset` (optional): Line offset for pagination
+
+### 4. System Info Tool
+
+**Purpose:** Gather comprehensive system information from local or remote hosts
+
+**Features:**
+- CPU information (model, cores, threads, load averages, usage)
+- Memory information (total, used, free, available, cached)
+- System identification (hostname, kernel, OS, uptime)
+- Remote execution via SSH
+- Local execution when no SSH parameters provided
+- Formatted output with structured data
+
+**Input Parameters:**
+- `ssh_host` (optional): SSH host for remote execution
+- `ssh_port` (optional): SSH port (default: 22)
+- `ssh_user` (optional): SSH user
+- `max_lines` (optional): Maximum lines to return (default: 1000)
+- `offset` (optional): Line offset for pagination
+
 ## Build System
 
 **Makefile targets:**
@@ -83,16 +146,23 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 
 **Branch:** master  
 **Recent Changes:**
-- Several README.md updates
-- Project restructure (moved main.go to cmd/debugger/)
-- Added build system and linting
-- Removed old profiler implementation, added new tools structure
+- Added BSD 3-Clause License
+- Added SSH Exec tool for remote binary execution
+- Added System Info tool for system resource monitoring
+- Added SSH connector for shared SSH functionality
+- Renamed profiler tool to pprof for clarity
+- Added golangci-lint configuration
+- Updated README with similar projects section
 
-**Modified Files:**
-- `.gitignore` - Updated ignore patterns
-- `README.md` - Documentation updates  
-- `go.mod/go.sum` - Dependency updates
-- Various new files added in restructure
+**Current Modified/Added Files:**
+- `.golangci.yml` - Linter configuration (modified)
+- `README.md` - Documentation updates (modified)
+- `cmd/debugger/main.go` - Main server implementation (modified)
+- `pkg/connectors/ssh/ssh.go` - SSH connector (new)
+- `pkg/tools/delve/delve.go` - Delve tool (modified)
+- `pkg/tools/pprof/pprof.go` - Renamed from profiler (renamed/modified)
+- `pkg/tools/sshexec/sshexec.go` - SSH exec tool (new)
+- `pkg/tools/sysinfo/sysinfo.go` - System info tool (new)
 
 ## Integration
 
@@ -128,17 +198,63 @@ pprof Host=192.168.4.15 Profile=heap
 "Run available pprof profiles for host 192.168.4.15 and aggregate data"
 ```
 
+### SSH Exec Integration
+```bash
+# Transfer and execute a binary on remote host
+sshexec Host=192.168.1.100 BinaryPath=/local/path/to/binary Args=["--verbose", "--config=/etc/app.conf"]
+
+# Execute with custom remote path and keep binary
+sshexec Host=server.example.com User=deploy BinaryPath=./myapp RemotePath=/opt/apps/myapp KeepBinary=true
+
+# Execute binary in background
+sshexec Host=192.168.1.100 BinaryPath=./server RunInBackground=true
+
+# Kill a specific process by PID
+sshexec Host=192.168.1.100 KillPID=12345
+
+# Kill processes by name pattern
+sshexec Host=192.168.1.100 KillByName=remote-debugger-mcp
+
+# Kill processes with specific signal
+sshexec Host=192.168.1.100 KillByName=myapp KillSignal=KILL
+
+# Natural language examples
+"Execute ./myserver on 192.168.1.100 in background"
+"Kill all processes matching 'remote-debugger' on 192.168.1.100"
+"Kill PID 12345 on remote server with SIGTERM"
+```
+
+### System Info Integration  
+```bash
+# Get local system information
+sysinfo
+
+# Get remote system information via SSH
+sysinfo SSHHost=192.168.1.100 SSHUser=admin
+
+# Natural language examples
+"Check system resources on server 192.168.1.100"
+"Get CPU and memory usage from production server"
+```
+
 ## Development Status
 
 ### Completed Features
 - ✅ MCP server framework with HTTP transport
 - ✅ Delve debugger tool with full command support
 - ✅ pprof profiler tool with multiple profile types
+- ✅ SSH exec tool for remote binary execution
+- ✅ **NEW:** SSH exec tool process killing (PID and name-based)
+- ✅ **NEW:** Configurable kill signals (TERM, KILL, etc.)
+- ✅ System info tool for resource monitoring (local and remote)
+- ✅ SSH connector for shared SSH functionality
+- ✅ Background process execution and management
 - ✅ Pagination support for large outputs
 - ✅ Structured logging with debug mode
-- ✅ Build system with linting
+- ✅ Build system with linting and golangci-lint configuration
 - ✅ Version management
 - ✅ Error handling and connection management
+- ✅ BSD 3-Clause licensing
 
 ### Technical Debt & Improvements Needed
 - [ ] Add comprehensive test coverage
@@ -160,11 +276,15 @@ pprof Host=192.168.4.15 Profile=heap
 ## Security Considerations
 
 This is a debugging/profiling tool that:
-- Executes external commands (`dlv`, `go tool pprof`)
+- Executes external commands (`dlv`, `go tool pprof`, `ssh`, `scp`)
 - Makes network connections to remote services  
 - Exposes debugging capabilities via HTTP
+- Transfers and executes binaries on remote hosts via SSH
+- Collects system information from local and remote hosts
 
 **Defensive Use Only:** This tool is designed for legitimate debugging and profiling purposes. It should only be used in controlled development/testing environments.
+
+**SSH Security:** The SSH-based tools rely on the system's SSH configuration and authentication mechanisms (SSH keys, agent forwarding, etc.). Ensure proper SSH security practices are followed.
 
 ## Next Steps Recommendations
 

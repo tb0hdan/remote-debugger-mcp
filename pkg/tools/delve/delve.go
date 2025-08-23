@@ -169,10 +169,11 @@ func (d *Tool) Register(server *mcp.Server) {
 	}
 
 	mcp.AddTool(server, delveTool, d.DelveHandler)
+	d.logger.Debug().Msg("delve tool registered")
 }
 
 func New(logger zerolog.Logger) tools.Tool {
 	return &Tool{
-		logger: logger,
+		logger: logger.With().Str("tool", "delve").Logger(),
 	}
 }

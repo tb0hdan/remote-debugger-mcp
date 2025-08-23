@@ -13,8 +13,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/delve"
-	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/profiler"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/pprof"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/sshexec"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/sysinfo"
 )
 
 const (
@@ -28,11 +31,11 @@ var Version string
 func main() {
 	var (
 		debug        bool
-		port         int
+		bindAddr     string
 		printVersion bool
 	)
 	flag.BoolVar(&debug, "debug", false, "debug mode")
-	flag.IntVar(&port, "port", 8899, "server port")
+	flag.StringVar(&bindAddr, "bind", "localhost:8899", "bind address (host:port)")
 	flag.BoolVar(&printVersion, "version", false, "print version and exit")
 	flag.Parse()
 	// Sanitize version
@@ -55,13 +58,17 @@ func main() {
 	}
 
 	server := mcp.NewServer(impl, nil)
-	// Register tools
-	pprofTool := profiler.New(logger)
-	pprofTool.Register(server)
-	// Add more tools as needed
-	delveTool := delve.New(logger)
-	delveTool.Register(server)
-
+	toolList := []tools.Tool{
+		pprof.New(logger),
+		delve.New(logger),
+		sshexec.New(logger),
+		sysinfo.New(logger),
+	}
+	// Register all tools
+	for _, tool := range toolList {
+		tool.Register(server)
+	}
+	// Create HTTP handler for MCP server
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, nil)
@@ -79,10 +86,10 @@ func main() {
 		})
 	})
 
-	logger.Info().Msgf("%s starting on port %d", ServiceName, port)
-	logger.Info().Msgf("MCP endpoint available at: http://localhost:%d/mcp", port)
+	logger.Info().Msgf("%s starting on address %s", ServiceName, bindAddr)
+	logger.Info().Msgf("MCP endpoint available at: http://%s/mcp", bindAddr)
 
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); !errors.Is(err, http.ErrServerClosed) {
+	if err := http.ListenAndServe(bindAddr, nil); !errors.Is(err, http.ErrServerClosed) {
 		logger.Fatal().Msgf("%s failed to start: %v", ServerName, err)
 	}
 }

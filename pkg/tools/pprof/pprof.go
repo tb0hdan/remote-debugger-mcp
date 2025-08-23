@@ -1,4 +1,4 @@
-package profiler
+package pprof
 
 import (
 	"context"
@@ -40,7 +40,7 @@ type Tool struct {
 	logger zerolog.Logger
 }
 
-// fetchAvailableProfiles fetches the pprof index page and extracts available profile links
+// fetchAvailableProfiles fetches the pprof index page and extracts available profile links.
 func (p *Tool) fetchAvailableProfiles(baseURL string) ([]string, error) {
 	resp, err := http.Get(baseURL)
 	if err != nil {
@@ -210,10 +210,11 @@ func (p *Tool) Register(server *mcp.Server) {
 	}
 
 	mcp.AddTool(server, tool, p.PprofHandler)
+	p.logger.Debug().Msg("pprof tool registered")
 }
 
 func New(logger zerolog.Logger) tools.Tool {
 	return &Tool{
-		logger: logger,
+		logger: logger.With().Str("tool", "pprof").Logger(),
 	}
 }
