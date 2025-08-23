@@ -86,3 +86,9 @@ or even
 ```
 Run available pprof profiles for host 192.168.4.15 and aggregate data
 ```
+
+## Similar projects
+
+- [Pprof Analyzer MCP Server](https://github.com/ZephyrDeng/pprof-analyzer-mcp)
+- [pprof-mcp-agent](https://github.com/yudppp/pprof-mcp-agent)
+  
