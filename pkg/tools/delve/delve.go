@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/types"
 )
 
 type Input struct {
@@ -115,7 +116,7 @@ func (d *Tool) DelveHandler(_ context.Context, _ *mcp.ServerSession, params *mcp
 	}
 
 	// Apply pagination
-	maxLines := 1000
+	maxLines := types.MaxDefaultLines
 	if input.MaxLines > 0 {
 		maxLines = input.MaxLines
 	}

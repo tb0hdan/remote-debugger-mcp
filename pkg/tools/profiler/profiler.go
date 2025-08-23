@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/types"
 )
 
 type Input struct {
@@ -144,7 +145,7 @@ func (p *Tool) PprofHandler(_ context.Context, _ *mcp.ServerSession, params *mcp
 	}
 
 	// Determine max lines for pagination (default: 100 for top view)
-	maxLines := 100
+	maxLines := types.MaxDefaultLines
 	if input.MaxLines > 0 {
 		maxLines = input.MaxLines
 	}
