@@ -145,19 +145,19 @@ func (c *Connector) CopyFileFromRemote(remotePath, localPath string) error {
 
 // MakeExecutable makes a file executable on the remote host.
 func (c *Connector) MakeExecutable(remotePath string) error {
-	_, err := c.ExecuteCommand(fmt.Sprintf("chmod +x %s", remotePath))
+	_, err := c.ExecuteCommand(fmt.Sprintf("chmod +x %s", EscapeArg(remotePath)))
 	return err
 }
 
 // RemoveFile removes a file on the remote host.
 func (c *Connector) RemoveFile(remotePath string) error {
-	_, err := c.ExecuteCommand(fmt.Sprintf("rm -f %s", remotePath))
+	_, err := c.ExecuteCommand(fmt.Sprintf("rm -f %s", EscapeArg(remotePath)))
 	return err
 }
 
 // FileExists checks if a file exists on the remote host.
 func (c *Connector) FileExists(remotePath string) (bool, error) {
-	output, err := c.ExecuteCommand(fmt.Sprintf("test -f %s && echo 'exists' || echo 'not exists'", remotePath))
+	output, err := c.ExecuteCommand(fmt.Sprintf("test -f %s && echo 'exists' || echo 'not exists'", EscapeArg(remotePath)))
 	if err != nil {
 		return false, err
 	}

@@ -126,8 +126,8 @@ func (s *Tool) gatherSystemInfo(conn *ssh.Connector) *SystemInfo {
 		}
 	}
 
-	// CPU usage (using top in batch mode)
-	if output, err := s.executeCommand("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'", conn); err == nil {
+	// CPU usage (calculating from /proc/stat)
+	if output, err := s.executeCommand("awk '/cpu / {u=$2-u; s=$4-s; n=$5-n; i=$6-i} END {print 100 * (u+s+n) / (u+s+n+i)}' <(grep 'cpu ' /proc/stat) <(sleep 1; grep 'cpu ' /proc/stat)", conn); err == nil {
 		usage := strings.TrimSpace(output)
 		if usage != "" {
 			cpuInfo.Usage = fmt.Sprintf("%.1f%%", parseFloat(usage))

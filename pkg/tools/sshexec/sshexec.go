@@ -80,27 +80,26 @@ func (s *Tool) SSHExecHandler(_ context.Context, _ *mcp.ServerSession, params *m
 
 	user := input.User
 
-	maxLines := types.MaxDefaultLines
-	if input.MaxLines > 0 {
-		maxLines = input.MaxLines
-	}
-
-	offset := 0
-	if input.Offset > 0 {
-		offset = input.Offset
-	}
-
 	// Create SSH connector
 	conn := ssh.New(input.Host, port, user)
 
 	if isKillMode {
-		return s.handleKillMode(input, conn, maxLines, offset)
+		return s.handleKillMode(input, conn)
 	} else {
+		maxLines := types.MaxDefaultLines
+		if input.MaxLines > 0 {
+			maxLines = input.MaxLines
+		}
+
+		offset := 0
+		if input.Offset > 0 {
+			offset = input.Offset
+		}
 		return s.handleExecMode(input, conn, maxLines, offset)
 	}
 }
 
-func (s *Tool) handleKillMode(input Input, conn *ssh.Connector, maxLines, offset int) (*mcp.CallToolResultFor[Output], error) {
+func (s *Tool) handleKillMode(input Input, conn *ssh.Connector) (*mcp.CallToolResultFor[Output], error) {
 	signal := "TERM"
 	if input.KillSignal != "" {
 		signal = input.KillSignal
@@ -129,29 +128,9 @@ func (s *Tool) handleKillMode(input Input, conn *ssh.Connector, maxLines, offset
 		return nil, fmt.Errorf("failed to execute kill command: %v", err)
 	}
 
-	// Apply pagination
-	lines := strings.Split(output, "\n")
-	totalLines := len(lines)
-	
-	if offset >= totalLines {
-		lines = []string{}
-	} else {
-		end := offset + maxLines
-		if end > totalLines {
-			end = totalLines
-		}
-		lines = lines[offset:end]
-	}
-
-	truncated := totalLines > (offset + maxLines)
-	paginatedOutput := strings.Join(lines, "\n")
-
 	resultText := fmt.Sprintf("SSH Kill output for %s (operation: %s):\n", conn.GetTarget(), operation)
 	resultText += fmt.Sprintf("Exit Code: %d\n", exitCode)
-	if truncated {
-		resultText += fmt.Sprintf("[Showing lines %d-%d of %d total lines. Use offset parameter to view more.]\n", offset+1, offset+len(lines), totalLines)
-	}
-	resultText += "\n" + strings.TrimSpace(paginatedOutput)
+	resultText += "\n" + strings.TrimSpace(output)
 
 	return &mcp.CallToolResultFor[Output]{
 		Content: []mcp.Content{
@@ -219,29 +198,29 @@ func (s *Tool) handleExecMode(input Input, conn *ssh.Connector, maxLines, offset
 		return nil, fmt.Errorf("failed to execute binary: %v", err)
 	}
 
-	// Apply pagination
-	lines := strings.Split(output, "\n")
-	totalLines := len(lines)
-	
-	if offset >= totalLines {
-		lines = []string{}
-	} else {
-		end := offset + maxLines
-		if end > totalLines {
-			end = totalLines
-		}
-		lines = lines[offset:end]
-	}
-
-	truncated := totalLines > (offset + maxLines)
-	paginatedOutput := strings.Join(lines, "\n")
-
 	resultText := fmt.Sprintf("SSH Exec output for %s (binary: %s):\n", conn.GetTarget(), filepath.Base(input.BinaryPath))
-	
+
 	if input.RunInBackground {
-		resultText += fmt.Sprintf("Process started in background. PID: %s\n", strings.TrimSpace(paginatedOutput))
+		resultText += fmt.Sprintf("Process started in background. PID: %s\n", strings.TrimSpace(output))
 		resultText += "Note: Binary will remain on remote host for background processes."
 	} else {
+		// Apply pagination
+		lines := strings.Split(output, "\n")
+		totalLines := len(lines)
+
+		if offset >= totalLines {
+			lines = []string{}
+		} else {
+			end := offset + maxLines
+			if end > totalLines {
+				end = totalLines
+			}
+			lines = lines[offset:end]
+		}
+
+		truncated := totalLines > (offset + maxLines)
+		paginatedOutput := strings.Join(lines, "\n")
+
 		resultText += fmt.Sprintf("Exit Code: %d\n", exitCode)
 		if truncated {
 			resultText += fmt.Sprintf("[Showing lines %d-%d of %d total lines. Use offset parameter to view more.]\n", offset+1, offset+len(lines), totalLines)
