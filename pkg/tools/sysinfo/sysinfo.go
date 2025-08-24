@@ -69,7 +69,7 @@ func (s *Tool) Register(srv *server.Server) {
 	s.logger.Debug().Msg("sysinfo tool registered")
 }
 
-func (s *Tool) SysInfoHandler(_ context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[SystemInfo], error) {
+func (s *Tool) SysInfoHandler(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[SystemInfo], error) {
 	input := params.Arguments
 
 	// Determine if this is local or remote execution
@@ -87,7 +87,7 @@ func (s *Tool) SysInfoHandler(_ context.Context, _ *mcp.ServerSession, params *m
 		s.logger.Info().Msgf("Gathering system information from remote host: %s", target)
 
 		// Test connection
-		if err := conn.TestConnection(); err != nil {
+		if err := conn.TestConnection(ctx); err != nil {
 			return nil, fmt.Errorf("failed to connect to %s: %v", target, err)
 		}
 	} else {
@@ -95,7 +95,7 @@ func (s *Tool) SysInfoHandler(_ context.Context, _ *mcp.ServerSession, params *m
 	}
 
 	// Gather system information
-	info := s.gatherSystemInfo(conn)
+	info := s.gatherSystemInfo(ctx, conn)
 
 	// Format output
 	output := s.formatSystemInfo(info, target)
@@ -103,8 +103,7 @@ func (s *Tool) SysInfoHandler(_ context.Context, _ *mcp.ServerSession, params *m
 	// Apply pagination with validation
 	maxLines := types.MaxDefaultLines
 	if input.MaxLines > 0 {
-		const maxAllowedLines = 100000
-		if input.MaxLines > maxAllowedLines {
+		if input.MaxLines > types.MaxAllowedLines {
 			return nil, errors.New("max_lines cannot exceed 100000")
 		}
 		maxLines = input.MaxLines
@@ -150,39 +149,39 @@ func (s *Tool) SysInfoHandler(_ context.Context, _ *mcp.ServerSession, params *m
 	}, nil
 }
 
-func (s *Tool) executeCommand(command string, conn *ssh.Connector) (string, error) {
+func (s *Tool) executeCommand(ctx context.Context, command string, conn *ssh.Connector) (string, error) {
 	if conn != nil {
-		return conn.ExecuteCommand(command)
+		return conn.ExecuteCommand(ctx, command)
 	}
 
 	// Local execution
-	cmd := exec.Command("sh", "-c", command)
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	output, err := cmd.Output()
 	return string(output), err
 }
 
-func (s *Tool) gatherSystemInfo(conn *ssh.Connector) *SystemInfo {
+func (s *Tool) gatherSystemInfo(ctx context.Context, conn *ssh.Connector) *SystemInfo {
 	info := &SystemInfo{}
 
 	// Get hostname
-	if output, err := s.executeCommand("hostname", conn); err == nil {
+	if output, err := s.executeCommand(ctx, "hostname", conn); err == nil {
 		info.Hostname = strings.TrimSpace(output)
 	}
 
 	// Get kernel version
-	if output, err := s.executeCommand("uname -r", conn); err == nil {
+	if output, err := s.executeCommand(ctx, "uname -r", conn); err == nil {
 		info.Kernel = strings.TrimSpace(output)
 	}
 
 	// Get OS information
-	if output, err := s.executeCommand("cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '\"'", conn); err == nil {
+	if output, err := s.executeCommand(ctx, "cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '\"'", conn); err == nil {
 		info.OS = strings.TrimSpace(output)
-	} else if output, err := s.executeCommand("uname -s", conn); err == nil {
+	} else if output, err := s.executeCommand(ctx, "uname -s", conn); err == nil {
 		info.OS = strings.TrimSpace(output)
 	}
 
 	// Get uptime
-	if output, err := s.executeCommand("uptime -p 2>/dev/null || uptime", conn); err == nil {
+	if output, err := s.executeCommand(ctx, "uptime -p 2>/dev/null || uptime", conn); err == nil {
 		info.Uptime = strings.TrimSpace(output)
 	}
 
@@ -190,26 +189,26 @@ func (s *Tool) gatherSystemInfo(conn *ssh.Connector) *SystemInfo {
 	cpuInfo := CPUInfo{}
 
 	// CPU model
-	if output, err := s.executeCommand("grep 'model name' /proc/cpuinfo | head -1 | cut -d':' -f2", conn); err == nil {
+	if output, err := s.executeCommand(ctx, "grep 'model name' /proc/cpuinfo | head -1 | cut -d':' -f2", conn); err == nil {
 		cpuInfo.Model = strings.TrimSpace(output)
 	}
 
 	// CPU cores
-	if output, err := s.executeCommand("grep -c ^processor /proc/cpuinfo", conn); err == nil {
+	if output, err := s.executeCommand(ctx, "grep -c ^processor /proc/cpuinfo", conn); err == nil {
 		if cores, err := strconv.Atoi(strings.TrimSpace(output)); err == nil {
 			cpuInfo.Threads = cores
 		}
 	}
 
 	// Physical cores
-	if output, err := s.executeCommand("grep 'cpu cores' /proc/cpuinfo | head -1 | cut -d':' -f2", conn); err == nil {
+	if output, err := s.executeCommand(ctx, "grep 'cpu cores' /proc/cpuinfo | head -1 | cut -d':' -f2", conn); err == nil {
 		if cores, err := strconv.Atoi(strings.TrimSpace(output)); err == nil {
 			cpuInfo.Cores = cores
 		}
 	}
 
 	// Load average
-	if output, err := s.executeCommand("cat /proc/loadavg", conn); err == nil {
+	if output, err := s.executeCommand(ctx, "cat /proc/loadavg", conn); err == nil {
 		fields := strings.Fields(output)
 		const minLoadFields = 3
 		if len(fields) >= minLoadFields {
@@ -221,10 +220,10 @@ func (s *Tool) gatherSystemInfo(conn *ssh.Connector) *SystemInfo {
 
 	// CPU usage - use a simpler, safer approach without bash-specific features
 	// Read /proc/stat twice with 1 second interval to calculate CPU usage
-	if output1, err := s.executeCommand("grep 'cpu ' /proc/stat", conn); err == nil {
+	if output1, err := s.executeCommand(ctx, "grep 'cpu ' /proc/stat", conn); err == nil {
 		// Sleep for 1 second
-		if _, err := s.executeCommand("sleep 1", conn); err == nil {
-			if output2, err := s.executeCommand("grep 'cpu ' /proc/stat", conn); err == nil {
+		if _, err := s.executeCommand(ctx, "sleep 1", conn); err == nil {
+			if output2, err := s.executeCommand(ctx, "grep 'cpu ' /proc/stat", conn); err == nil {
 				// Parse both outputs to calculate CPU usage
 				usage := calculateCPUUsage(output1, output2)
 				if usage >= 0 {
@@ -240,7 +239,7 @@ func (s *Tool) gatherSystemInfo(conn *ssh.Connector) *SystemInfo {
 	memInfo := MemoryInfo{}
 
 	// Parse /proc/meminfo
-	if output, err := s.executeCommand("cat /proc/meminfo", conn); err == nil {
+	if output, err := s.executeCommand(ctx, "cat /proc/meminfo", conn); err == nil {
 		lines := strings.Split(output, "\n")
 		for _, line := range lines {
 			fields := strings.Fields(line)

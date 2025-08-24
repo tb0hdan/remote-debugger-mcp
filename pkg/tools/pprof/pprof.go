@@ -53,7 +53,7 @@ func (p *Tool) Register(srv *server.Server) {
 	p.logger.Debug().Msg("pprof tool registered")
 }
 
-func (p *Tool) PprofHandler(context context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
+func (p *Tool) PprofHandler(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
 	input := params.Arguments
 
 	host := "localhost"
@@ -80,7 +80,7 @@ func (p *Tool) PprofHandler(context context.Context, _ *mcp.ServerSession, param
 
 	// If no profile specified or "list" is requested, return available profiles
 	if profile == "" || profile == "list" {
-		profiles, err := p.fetchAvailableProfiles(context, baseURL)
+		profiles, err := p.fetchAvailableProfiles(ctx, baseURL)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +120,7 @@ func (p *Tool) PprofHandler(context context.Context, _ *mcp.ServerSession, param
 	// Use -text flag to get text output from pprof
 	p.logger.Info().Msgf("Sending request to %s", profileURL)
 	args := []string{"tool", "pprof", "-text", profileURL}
-	cmd := exec.Command("go", args...)
+	cmd := exec.CommandContext(ctx, "go", args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

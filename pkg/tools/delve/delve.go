@@ -38,7 +38,7 @@ type Tool struct {
 	logger zerolog.Logger
 }
 
-func (d *Tool) DelveHandler(_ context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
+func (d *Tool) DelveHandler(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
 	input := params.Arguments
 
 	host := "localhost"
@@ -60,7 +60,7 @@ func (d *Tool) DelveHandler(_ context.Context, _ *mcp.ServerSession, params *mcp
 
 	d.logger.Info().Msgf("Connecting to Delve debugger at %s with command: %s", addr, command)
 
-	cmd := exec.Command("dlv", "connect", addr)
+	cmd := exec.CommandContext(ctx, "dlv", "connect", addr)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

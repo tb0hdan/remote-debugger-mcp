@@ -61,7 +61,7 @@ func (s *Tool) Register(srv *server.Server) {
 	s.logger.Debug().Msg("sshexec tool registered")
 }
 
-func (s *Tool) SSHExecHandler(_ context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
+func (s *Tool) SSHExecHandler(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
 	input := params.Arguments
 
 	// Validate required fields
@@ -96,13 +96,12 @@ func (s *Tool) SSHExecHandler(_ context.Context, _ *mcp.ServerSession, params *m
 	conn := ssh.New(input.Host, port, user)
 
 	if isKillMode {
-		return s.handleKillMode(input, conn)
+		return s.handleKillMode(ctx, input, conn)
 	}
 
 	maxLines := types.MaxDefaultLines
 	if input.MaxLines > 0 {
-		const maxAllowedLines = 100000
-		if input.MaxLines > maxAllowedLines {
+		if input.MaxLines > types.MaxAllowedLines {
 			return nil, errors.New("max_lines cannot exceed 100000")
 		}
 		maxLines = input.MaxLines
@@ -114,10 +113,10 @@ func (s *Tool) SSHExecHandler(_ context.Context, _ *mcp.ServerSession, params *m
 	} else if input.Offset < 0 {
 		return nil, errors.New("offset cannot be negative")
 	}
-	return s.handleExecMode(input, conn, maxLines, offset)
+	return s.handleExecMode(ctx, input, conn, maxLines, offset)
 }
 
-func (s *Tool) handleKillMode(input Input, conn *ssh.Connector) (*mcp.CallToolResultFor[Output], error) {
+func (s *Tool) handleKillMode(ctx context.Context, input Input, conn *ssh.Connector) (*mcp.CallToolResultFor[Output], error) {
 	signal := "TERM"
 	if input.KillSignal != "" {
 		signal = input.KillSignal
@@ -144,7 +143,7 @@ func (s *Tool) handleKillMode(input Input, conn *ssh.Connector) (*mcp.CallToolRe
 		Str("signal", signal).
 		Msg("killing remote process(es)")
 
-	output, exitCode, err := conn.ExecuteCommandWithExitCode(remoteCommand)
+	output, exitCode, err := conn.ExecuteCommandWithExitCode(ctx, remoteCommand)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute kill command: %v", err)
 	}
@@ -162,7 +161,7 @@ func (s *Tool) handleKillMode(input Input, conn *ssh.Connector) (*mcp.CallToolRe
 	}, nil
 }
 
-func (s *Tool) handleExecMode(input Input, conn *ssh.Connector, maxLines, offset int) (*mcp.CallToolResultFor[Output], error) {
+func (s *Tool) handleExecMode(ctx context.Context, input Input, conn *ssh.Connector, maxLines, offset int) (*mcp.CallToolResultFor[Output], error) {
 	// Check if binary exists
 	if _, err := os.Stat(input.BinaryPath); err != nil {
 		return nil, fmt.Errorf("binary not found: %v", err)
@@ -184,14 +183,14 @@ func (s *Tool) handleExecMode(input Input, conn *ssh.Connector, maxLines, offset
 		Msg("transferring and executing binary")
 
 	// Step 1: Transfer binary using scp
-	if err := conn.CopyFile(input.BinaryPath, remotePath); err != nil {
+	if err := conn.CopyFile(ctx, input.BinaryPath, remotePath); err != nil {
 		return nil, err
 	}
 
 	// Step 2: Make binary executable
-	if err := conn.MakeExecutable(remotePath); err != nil {
+	if err := conn.MakeExecutable(ctx, remotePath); err != nil {
 		// Clean up the transferred binary on error
-		_ = conn.RemoveFile(remotePath)
+		_ = conn.RemoveFile(ctx, remotePath)
 		return nil, fmt.Errorf("failed to make binary executable: %v", err)
 	}
 
@@ -214,7 +213,7 @@ func (s *Tool) handleExecMode(input Input, conn *ssh.Connector, maxLines, offset
 		remoteCommand = fmt.Sprintf("%s; EXIT_CODE=$?; rm -f %s; exit $EXIT_CODE", remoteCommand, remotePath)
 	}
 
-	output, exitCode, err := conn.ExecuteCommandWithExitCode(remoteCommand)
+	output, exitCode, err := conn.ExecuteCommandWithExitCode(ctx, remoteCommand)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute binary: %v", err)
 	}

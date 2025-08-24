@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -77,11 +78,11 @@ func (c *Connector) BuildSCPArgs() []string {
 }
 
 // ExecuteCommand executes a command on the remote host.
-func (c *Connector) ExecuteCommand(command string) (string, error) {
+func (c *Connector) ExecuteCommand(ctx context.Context, command string) (string, error) {
 	args := c.BuildSSHArgs()
 	args = append(args, command)
 
-	cmd := exec.Command("ssh", args...)
+	cmd := exec.CommandContext(ctx, "ssh", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -99,11 +100,11 @@ func (c *Connector) ExecuteCommand(command string) (string, error) {
 }
 
 // ExecuteCommandWithExitCode executes a command and returns output with exit code.
-func (c *Connector) ExecuteCommandWithExitCode(command string) (string, int, error) {
+func (c *Connector) ExecuteCommandWithExitCode(ctx context.Context, command string) (string, int, error) {
 	args := c.BuildSSHArgs()
 	args = append(args, command)
 
-	cmd := exec.Command("ssh", args...)
+	cmd := exec.CommandContext(ctx, "ssh", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -133,11 +134,11 @@ func (c *Connector) ExecuteCommandWithExitCode(command string) (string, int, err
 }
 
 // CopyFile copies a local file to the remote host.
-func (c *Connector) CopyFile(localPath, remotePath string) error {
+func (c *Connector) CopyFile(ctx context.Context, localPath, remotePath string) error {
 	args := c.BuildSCPArgs()
 	args = append(args, localPath, fmt.Sprintf("%s:%s", c.GetTarget(), remotePath))
 
-	cmd := exec.Command("scp", args...)
+	cmd := exec.CommandContext(ctx, "scp", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -148,11 +149,11 @@ func (c *Connector) CopyFile(localPath, remotePath string) error {
 }
 
 // CopyFileFromRemote copies a file from the remote host to local.
-func (c *Connector) CopyFileFromRemote(remotePath, localPath string) error {
+func (c *Connector) CopyFileFromRemote(ctx context.Context, remotePath, localPath string) error {
 	args := c.BuildSCPArgs()
 	args = append(args, fmt.Sprintf("%s:%s", c.GetTarget(), remotePath), localPath)
 
-	cmd := exec.Command("scp", args...)
+	cmd := exec.CommandContext(ctx, "scp", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -163,20 +164,20 @@ func (c *Connector) CopyFileFromRemote(remotePath, localPath string) error {
 }
 
 // MakeExecutable makes a file executable on the remote host.
-func (c *Connector) MakeExecutable(remotePath string) error {
-	_, err := c.ExecuteCommand("chmod +x " + EscapeArg(remotePath))
+func (c *Connector) MakeExecutable(ctx context.Context, remotePath string) error {
+	_, err := c.ExecuteCommand(ctx, "chmod +x " + EscapeArg(remotePath))
 	return err
 }
 
 // RemoveFile removes a file on the remote host.
-func (c *Connector) RemoveFile(remotePath string) error {
-	_, err := c.ExecuteCommand("rm -f " + EscapeArg(remotePath))
+func (c *Connector) RemoveFile(ctx context.Context, remotePath string) error {
+	_, err := c.ExecuteCommand(ctx, "rm -f " + EscapeArg(remotePath))
 	return err
 }
 
 // FileExists checks if a file exists on the remote host.
-func (c *Connector) FileExists(remotePath string) (bool, error) {
-	output, err := c.ExecuteCommand(fmt.Sprintf("test -f %s && echo 'exists' || echo 'not exists'", EscapeArg(remotePath)))
+func (c *Connector) FileExists(ctx context.Context, remotePath string) (bool, error) {
+	output, err := c.ExecuteCommand(ctx, fmt.Sprintf("test -f %s && echo 'exists' || echo 'not exists'", EscapeArg(remotePath)))
 	if err != nil {
 		return false, err
 	}
@@ -184,8 +185,8 @@ func (c *Connector) FileExists(remotePath string) (bool, error) {
 }
 
 // TestConnection tests the SSH connection.
-func (c *Connector) TestConnection() error {
-	_, err := c.ExecuteCommand("echo 'connection test'")
+func (c *Connector) TestConnection(ctx context.Context) error {
+	_, err := c.ExecuteCommand(ctx, "echo 'connection test'")
 	return err
 }
 
