@@ -1,5 +1,5 @@
 # Remote debugger MCP
-This is a Model Context Protocol (MCP) server that provides a set remote debugging tools for profiling Go applications.
+This is a Model Context Protocol (MCP) server that runs on your machine and provides a set remote debugging tools for profiling Go applications.
 
 
 ## Project Overview
@@ -16,7 +16,7 @@ Available tools:
 ### Claude Code
 
 ```bash
- claude mcp add --transport http remote-debugger-mcp http://localhost:8899/mcp
+ claude mcp add --scope user --transport http remote-debugger-mcp http://localhost:8899/mcp
 ```
 
 ### Gemini CLI
@@ -29,7 +29,8 @@ gemini mcp add remote-debugger-mcp http://localhost:8899/mcp -t http
 
 ## Running the Server
 
-You need to build it once using the following command:
+Build it once using the following command:
+
 ```bash
 make
 ```
@@ -91,17 +92,20 @@ Run available pprof profiles for host 192.168.4.15 and aggregate data
 
 ### sshexec
 
-# Kill specific PID
+- Kill specific PID
+
 ```
 sshexec Host=192.168.1.100 KillPID=12345
 ```
 
-# Kill by process name
+ - Kill by process name
+
 ```
 sshexec Host=192.168.1.100 KillByName=remote-debugger-mcp
 ```
 
-# Kill with specific signal
+- Kill with specific signal
+- 
 ```
 sshexec Host=192.168.1.100 KillByName=myapp KillSignal=KILL
 ```
@@ -120,8 +124,8 @@ sysinfo Host=192.168.4.15
 ### Combined usage (tested on Claude)
 
 ```
- Build this project locally and then transfer it to remote host using sshexec tool. Run it there with -bind 192.168.4.15:8899. Then fetch profiling information using pprof tool, show it here, terminate 
-  remote binary.
+Build this project locally and then transfer it to remote host 192.168.4.15 using sshexec tool. Run it there with -bind 192.168.4.15:8899.
+Then fetch profiling information using pprof tool, show it here, terminate remote binary.
 ```
 
 ## Similar projects
