@@ -13,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/server"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/types"
 )
@@ -42,13 +43,13 @@ type Tool struct {
 	logger zerolog.Logger
 }
 
-func (p *Tool) Register(server *mcp.Server) {
+func (p *Tool) Register(srv *server.Server) {
 	tool := &mcp.Tool{
 		Name:        "pprof",
 		Description: "Connects to a remote pprof server and retrieves profiling data",
 	}
 
-	mcp.AddTool(server, tool, p.PprofHandler)
+	mcp.AddTool(&srv.Server, tool, p.PprofHandler)
 	p.logger.Debug().Msg("pprof tool registered")
 }
 

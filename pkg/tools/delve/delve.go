@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/server"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/types"
 )
@@ -162,13 +163,13 @@ func (d *Tool) DelveHandler(_ context.Context, _ *mcp.ServerSession, params *mcp
 	return result, nil
 }
 
-func (d *Tool) Register(server *mcp.Server) {
+func (d *Tool) Register(srv *server.Server) {
 	delveTool := &mcp.Tool{
 		Name:        "delve",
 		Description: "Connects to a remote Delve debugger using dlv command",
 	}
 
-	mcp.AddTool(server, delveTool, d.DelveHandler)
+	mcp.AddTool(&srv.Server, delveTool, d.DelveHandler)
 	d.logger.Debug().Msg("delve tool registered")
 }
 

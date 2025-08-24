@@ -1,7 +1,9 @@
 package tools
 
-import "github.com/modelcontextprotocol/go-sdk/mcp"
+import (
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/server"
+)
 
 type Tool interface {
-	Register(server *mcp.Server)
+	Register(srv *server.Server)
 }

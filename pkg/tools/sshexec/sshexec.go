@@ -11,24 +11,25 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/connectors/ssh"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/server"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/types"
 )
 
 type Input struct {
-	Host           string   `json:"host"`                      // SSH host (required)
-	Port           int      `json:"port,omitempty"`            // SSH port (default: 22)
-	User           string   `json:"user,omitempty"`            // SSH user (default: current user)
-	BinaryPath     string   `json:"binary_path,omitempty"`     // Local binary path to transfer (required for exec, optional for kill)
-	RemotePath     string   `json:"remote_path,omitempty"`     // Remote destination path (default: /tmp/<filename>)
-	Args           []string `json:"args,omitempty"`            // Arguments to pass to the binary
-	KeepBinary     bool     `json:"keep_binary,omitempty"`    // Keep binary after execution (default: false, meaning cleanup)
-	RunInBackground bool    `json:"run_in_background,omitempty"` // Run process in background (default: false)
-	KillPID        int      `json:"kill_pid,omitempty"`       // PID to kill on remote host (mutually exclusive with exec)
-	KillByName     string   `json:"kill_by_name,omitempty"`   // Kill processes by name pattern (mutually exclusive with exec and kill_pid)
-	KillSignal     string   `json:"kill_signal,omitempty"`    // Signal to send when killing (default: TERM)
-	MaxLines       int      `json:"max_lines,omitempty"`       // Maximum lines to return (default: 1000)
-	Offset         int      `json:"offset,omitempty"`          // Line offset for pagination
+	Host            string   `json:"host"`                        // SSH host (required)
+	Port            int      `json:"port,omitempty"`              // SSH port (default: 22)
+	User            string   `json:"user,omitempty"`              // SSH user (default: current user)
+	BinaryPath      string   `json:"binary_path,omitempty"`       // Local binary path to transfer (required for exec, optional for kill)
+	RemotePath      string   `json:"remote_path,omitempty"`       // Remote destination path (default: /tmp/<filename>)
+	Args            []string `json:"args,omitempty"`              // Arguments to pass to the binary
+	KeepBinary      bool     `json:"keep_binary,omitempty"`       // Keep binary after execution (default: false, meaning cleanup)
+	RunInBackground bool     `json:"run_in_background,omitempty"` // Run process in background (default: false)
+	KillPID         int      `json:"kill_pid,omitempty"`          // PID to kill on remote host (mutually exclusive with exec)
+	KillByName      string   `json:"kill_by_name,omitempty"`      // Kill processes by name pattern (mutually exclusive with exec and kill_pid)
+	KillSignal      string   `json:"kill_signal,omitempty"`       // Signal to send when killing (default: TERM)
+	MaxLines        int      `json:"max_lines,omitempty"`         // Maximum lines to return (default: 1000)
+	Offset          int      `json:"offset,omitempty"`            // Line offset for pagination
 }
 
 type Output struct {
@@ -50,13 +51,13 @@ type Tool struct {
 	logger zerolog.Logger
 }
 
-func (s *Tool) Register(server *mcp.Server) {
+func (s *Tool) Register(srv *server.Server) {
 	sshExecTool := &mcp.Tool{
 		Name:        "sshexec",
 		Description: "Transfer and execute a binary on a remote host via SSH, or kill remote processes",
 	}
 
-	mcp.AddTool(server, sshExecTool, s.SSHExecHandler)
+	mcp.AddTool(&srv.Server, sshExecTool, s.SSHExecHandler)
 	s.logger.Debug().Msg("sshexec tool registered")
 }
 
@@ -97,22 +98,22 @@ func (s *Tool) SSHExecHandler(_ context.Context, _ *mcp.ServerSession, params *m
 	if isKillMode {
 		return s.handleKillMode(input, conn)
 	}
-	
-		maxLines := types.MaxDefaultLines
-		if input.MaxLines > 0 {
+
+	maxLines := types.MaxDefaultLines
+	if input.MaxLines > 0 {
 		const maxAllowedLines = 100000
 		if input.MaxLines > maxAllowedLines {
-				return nil, errors.New("max_lines cannot exceed 100000")
-			}
-			maxLines = input.MaxLines
+			return nil, errors.New("max_lines cannot exceed 100000")
 		}
+		maxLines = input.MaxLines
+	}
 
-		offset := 0
-		if input.Offset >= 0 {
-			offset = input.Offset
-		} else if input.Offset < 0 {
-			return nil, errors.New("offset cannot be negative")
-		}
+	offset := 0
+	if input.Offset >= 0 {
+		offset = input.Offset
+	} else if input.Offset < 0 {
+		return nil, errors.New("offset cannot be negative")
+	}
 	return s.handleExecMode(input, conn, maxLines, offset)
 }
 

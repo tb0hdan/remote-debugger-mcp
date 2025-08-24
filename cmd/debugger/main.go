@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -9,10 +10,14 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/server"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/delve"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/pprof"
@@ -21,8 +26,9 @@ import (
 )
 
 const (
-	ServerName  = "remote-debugger-mcp"
-	ServiceName = "Remote Debugger MCP Connector"
+	ServerName      = "remote-debugger-mcp"
+	ServiceName     = "Remote Debugger MCP Connector"
+	ShutdownTimeout = 10 * time.Second
 )
 
 //go:embed VERSION
@@ -46,6 +52,9 @@ func main() {
 		os.Exit(0)
 	}
 
+	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
 	if debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
@@ -57,7 +66,7 @@ func main() {
 		Version: version,
 	}
 
-	server := mcp.NewServer(impl, nil)
+	srv := server.NewServer(impl)
 	toolList := []tools.Tool{
 		pprof.New(logger),
 		delve.New(logger),
@@ -66,11 +75,11 @@ func main() {
 	}
 	// Register all tools
 	for _, tool := range toolList {
-		tool.Register(server)
+		tool.Register(srv)
 	}
 	// Create HTTP handler for MCP server
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
-		return server
+		return &srv.Server
 	}, nil)
 
 	http.Handle("/mcp", handler)
@@ -89,7 +98,18 @@ func main() {
 	logger.Info().Msgf("%s starting on address %s", ServiceName, bindAddr)
 	logger.Info().Msgf("MCP endpoint available at: http://%s/mcp", bindAddr)
 
-	if err := http.ListenAndServe(bindAddr, nil); !errors.Is(err, http.ErrServerClosed) {
-		logger.Fatal().Msgf("%s failed to start: %v", ServerName, err)
+	go func() {
+		if err := http.ListenAndServe(bindAddr, nil); !errors.Is(err, http.ErrServerClosed) {
+			logger.Fatal().Msgf("%s failed to start: %v", ServerName, err)
+		}
+	}()
+	<-signalCtx.Done()
+	ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
+	defer cancel()
+	// Shutdown MCP server
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error().Msgf("%s shutdown error: %v", ServiceName, err)
+	} else {
+		logger.Info().Msgf("%s shutdown complete", ServiceName)
 	}
 }

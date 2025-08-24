@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/connectors/ssh"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/server"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/types"
 )
@@ -33,24 +34,24 @@ type SystemInfo struct {
 }
 
 type CPUInfo struct {
-	Model      string `json:"model"`
-	Cores      int    `json:"cores"`
-	Threads    int    `json:"threads"`
-	LoadAvg1   string `json:"load_avg_1min"`
-	LoadAvg5   string `json:"load_avg_5min"`
-	LoadAvg15  string `json:"load_avg_15min"`
-	Usage      string `json:"usage_percent"`
+	Model     string `json:"model"`
+	Cores     int    `json:"cores"`
+	Threads   int    `json:"threads"`
+	LoadAvg1  string `json:"load_avg_1min"`
+	LoadAvg5  string `json:"load_avg_5min"`
+	LoadAvg15 string `json:"load_avg_15min"`
+	Usage     string `json:"usage_percent"`
 }
 
 type MemoryInfo struct {
-	TotalMB     int    `json:"total_mb"`
-	UsedMB      int    `json:"used_mb"`
-	FreeMB      int    `json:"free_mb"`
-	AvailableMB int    `json:"available_mb"`
-	CachedMB    int    `json:"cached_mb"`
-	SwapTotalMB int    `json:"swap_total_mb"`
-	SwapUsedMB  int    `json:"swap_used_mb"`
-	SwapFreeMB  int    `json:"swap_free_mb"`
+	TotalMB      int    `json:"total_mb"`
+	UsedMB       int    `json:"used_mb"`
+	FreeMB       int    `json:"free_mb"`
+	AvailableMB  int    `json:"available_mb"`
+	CachedMB     int    `json:"cached_mb"`
+	SwapTotalMB  int    `json:"swap_total_mb"`
+	SwapUsedMB   int    `json:"swap_used_mb"`
+	SwapFreeMB   int    `json:"swap_free_mb"`
 	UsagePercent string `json:"usage_percent"`
 }
 
@@ -58,16 +59,15 @@ type Tool struct {
 	logger zerolog.Logger
 }
 
-func (s *Tool) Register(server *mcp.Server) {
+func (s *Tool) Register(srv *server.Server) {
 	sysInfoTool := &mcp.Tool{
 		Name:        "sysinfo",
 		Description: "Gather system information (CPU and memory) from local or remote host",
 	}
 
-	mcp.AddTool(server, sysInfoTool, s.SysInfoHandler)
+	mcp.AddTool(&srv.Server, sysInfoTool, s.SysInfoHandler)
 	s.logger.Debug().Msg("sysinfo tool registered")
 }
-
 
 func (s *Tool) SysInfoHandler(_ context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[SystemInfo], error) {
 	input := params.Arguments
@@ -85,7 +85,7 @@ func (s *Tool) SysInfoHandler(_ context.Context, _ *mcp.ServerSession, params *m
 		target = conn.GetTarget()
 
 		s.logger.Info().Msgf("Gathering system information from remote host: %s", target)
-		
+
 		// Test connection
 		if err := conn.TestConnection(); err != nil {
 			return nil, fmt.Errorf("failed to connect to %s: %v", target, err)
@@ -137,7 +137,7 @@ func (s *Tool) SysInfoHandler(_ context.Context, _ *mcp.ServerSession, params *m
 
 	resultText := paginatedOutput
 	if truncated {
-		resultText = fmt.Sprintf("[Showing lines %d-%d of %d total lines. Use offset parameter to view more.]\n\n%s", 
+		resultText = fmt.Sprintf("[Showing lines %d-%d of %d total lines. Use offset parameter to view more.]\n\n%s",
 			offset+1, offset+len(lines), totalLines, paginatedOutput)
 	}
 
@@ -154,7 +154,7 @@ func (s *Tool) executeCommand(command string, conn *ssh.Connector) (string, erro
 	if conn != nil {
 		return conn.ExecuteCommand(command)
 	}
-	
+
 	// Local execution
 	cmd := exec.Command("sh", "-c", command)
 	output, err := cmd.Output()
@@ -298,39 +298,39 @@ func calculateCPUUsage(stat1, stat2 string) float64 {
 	// Format: cpu user nice system idle iowait irq softirq steal guest guest_nice
 	fields1 := strings.Fields(stat1)
 	fields2 := strings.Fields(stat2)
-	
+
 	if len(fields1) < 5 || len(fields2) < 5 {
 		return -1
 	}
-	
+
 	// Parse values from first sample
 	user1, _ := strconv.ParseInt(fields1[1], 10, 64)
 	nice1, _ := strconv.ParseInt(fields1[2], 10, 64)
 	system1, _ := strconv.ParseInt(fields1[3], 10, 64)
 	idle1, _ := strconv.ParseInt(fields1[4], 10, 64)
-	
+
 	// Parse values from second sample
 	user2, _ := strconv.ParseInt(fields2[1], 10, 64)
 	nice2, _ := strconv.ParseInt(fields2[2], 10, 64)
 	system2, _ := strconv.ParseInt(fields2[3], 10, 64)
 	idle2, _ := strconv.ParseInt(fields2[4], 10, 64)
-	
+
 	// Calculate deltas
 	userDelta := user2 - user1
 	niceDelta := nice2 - nice1
 	systemDelta := system2 - system1
 	idleDelta := idle2 - idle1
-	
+
 	totalDelta := userDelta + niceDelta + systemDelta + idleDelta
 	if totalDelta == 0 {
 		return 0
 	}
-	
+
 	// Calculate usage percentage
 	usedDelta := userDelta + niceDelta + systemDelta
 	const percentMultiplier = 100.0
 	usage := float64(usedDelta) * percentMultiplier / float64(totalDelta)
-	
+
 	return usage
 }
 
@@ -354,7 +354,7 @@ func (s *Tool) formatSystemInfo(info *SystemInfo, target string) string {
 	output.WriteString(fmt.Sprintf("  Model: %s\n", info.CPUInfo.Model))
 	output.WriteString(fmt.Sprintf("  Physical Cores: %d\n", info.CPUInfo.Cores))
 	output.WriteString(fmt.Sprintf("  Logical Cores: %d\n", info.CPUInfo.Threads))
-	output.WriteString(fmt.Sprintf("  Load Average: %s (1m), %s (5m), %s (15m)\n", 
+	output.WriteString(fmt.Sprintf("  Load Average: %s (1m), %s (5m), %s (15m)\n",
 		info.CPUInfo.LoadAvg1, info.CPUInfo.LoadAvg5, info.CPUInfo.LoadAvg15))
 	if info.CPUInfo.Usage != "" {
 		output.WriteString(fmt.Sprintf("  Current Usage: %s\n", info.CPUInfo.Usage))
@@ -368,7 +368,7 @@ func (s *Tool) formatSystemInfo(info *SystemInfo, target string) string {
 	output.WriteString(fmt.Sprintf("  Available: %d MB\n", info.MemoryInfo.AvailableMB))
 	output.WriteString(fmt.Sprintf("  Free: %d MB\n", info.MemoryInfo.FreeMB))
 	output.WriteString(fmt.Sprintf("  Cached: %d MB\n", info.MemoryInfo.CachedMB))
-	
+
 	if info.MemoryInfo.SwapTotalMB > 0 {
 		output.WriteString("\nSwap Information:\n")
 		output.WriteString(fmt.Sprintf("  Total: %d MB\n", info.MemoryInfo.SwapTotalMB))
