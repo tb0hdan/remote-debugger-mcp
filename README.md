@@ -6,9 +6,9 @@ This is a Model Context Protocol (MCP) server that runs on your machine and prov
 
 Available tools:
 
-- [delve](https://github.com/go-delve/delve)
+- [delve](https://github.com/go-delve/delve) - non-interactive commands only
 - [pprof](https://pkg.go.dev/net/http/pprof)
-- sshexec
+- sshexec - requires SSH access already configured
 - sysinfo - both local and remote system information via SSH
 
 ## Adding to coding agents
@@ -105,7 +105,7 @@ sshexec Host=192.168.1.100 KillByName=remote-debugger-mcp
 ```
 
 - Kill with specific signal
-- 
+
 ```
 sshexec Host=192.168.1.100 KillByName=myapp KillSignal=KILL
 ```
