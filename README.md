@@ -1,5 +1,5 @@
 # Remote debugger MCP
-This is a Model Context Protocol (MCP) server that provides a remote debugger tool for profiling Go applications using pprof.
+This is a Model Context Protocol (MCP) server that provides a set remote debugging tools for profiling Go applications.
 
 
 ## Project Overview
@@ -8,6 +8,7 @@ Available tools:
 
 - [delve](https://github.com/go-delve/delve)
 - [pprof](https://pkg.go.dev/net/http/pprof)
+- sshexec
 - sysinfo - both local and remote system information via SSH
 
 ## Adding to coding agents
