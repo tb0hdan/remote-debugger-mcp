@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -40,53 +42,17 @@ type Tool struct {
 	logger zerolog.Logger
 }
 
-// fetchAvailableProfiles fetches the pprof index page and extracts available profile links.
-func (p *Tool) fetchAvailableProfiles(baseURL string) ([]string, error) {
-	resp, err := http.Get(baseURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch pprof index page: %w", err)
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch pprof index page: status %d", resp.StatusCode)
+func (p *Tool) Register(server *mcp.Server) {
+	tool := &mcp.Tool{
+		Name:        "pprof",
+		Description: "Connects to a remote pprof server and retrieves profiling data",
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read pprof index page: %w", err)
-	}
-
-	// Extract profile links from HTML
-	// Looking for patterns like href="/debug/pprof/profile" or href="profile"
-	re := regexp.MustCompile(`href="(?:/debug/pprof/)?([^"]+)"`)
-	matches := re.FindAllStringSubmatch(string(body), -1)
-
-	profiles := []string{}
-	seen := make(map[string]bool)
-
-	for _, match := range matches {
-		if len(match) > 1 {
-			profile := match[1]
-			// Skip non-profile links
-			if strings.Contains(profile, "/") || strings.Contains(profile, "http") {
-				continue
-			}
-			// Skip duplicate entries
-			if seen[profile] {
-				continue
-			}
-			seen[profile] = true
-			profiles = append(profiles, profile)
-		}
-	}
-
-	return profiles, nil
+	mcp.AddTool(server, tool, p.PprofHandler)
+	p.logger.Debug().Msg("pprof tool registered")
 }
 
-func (p *Tool) PprofHandler(_ context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
+func (p *Tool) PprofHandler(context context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
 	input := params.Arguments
 
 	host := "localhost"
@@ -109,11 +75,11 @@ func (p *Tool) PprofHandler(_ context.Context, _ *mcp.ServerSession, params *mcp
 		seconds = input.Seconds
 	}
 
-	baseURL := fmt.Sprintf("http://%s:%d/debug/pprof/", host, port)
+	baseURL := "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/debug/pprof/"
 
 	// If no profile specified or "list" is requested, return available profiles
 	if profile == "" || profile == "list" {
-		profiles, err := p.fetchAvailableProfiles(baseURL)
+		profiles, err := p.fetchAvailableProfiles(context, baseURL)
 		if err != nil {
 			return nil, err
 		}
@@ -203,14 +169,55 @@ func (p *Tool) PprofHandler(_ context.Context, _ *mcp.ServerSession, params *mcp
 	return result, nil
 }
 
-func (p *Tool) Register(server *mcp.Server) {
-	tool := &mcp.Tool{
-		Name:        "pprof",
-		Description: "Connects to a remote pprof server and retrieves profiling data",
+// fetchAvailableProfiles fetches the pprof index page and extracts available profile links.
+func (p *Tool) fetchAvailableProfiles(ctx context.Context, baseURL string) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch pprof index page: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch pprof index page: status %d", resp.StatusCode)
 	}
 
-	mcp.AddTool(server, tool, p.PprofHandler)
-	p.logger.Debug().Msg("pprof tool registered")
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read pprof index page: %w", err)
+	}
+
+	// Extract profile links from HTML
+	// Looking for patterns like href="/debug/pprof/profile" or href="profile"
+	re := regexp.MustCompile(`href="(?:/debug/pprof/)?([^"]+)"`)
+	matches := re.FindAllStringSubmatch(string(body), -1)
+
+	profiles := []string{}
+	seen := make(map[string]bool)
+
+	for _, match := range matches {
+		if len(match) > 1 {
+			profile := match[1]
+			// Skip non-profile links
+			if strings.Contains(profile, "/") || strings.Contains(profile, "http") {
+				continue
+			}
+			// Skip duplicate entries
+			if seen[profile] {
+				continue
+			}
+			seen[profile] = true
+			profiles = append(profiles, profile)
+		}
+	}
+
+	return profiles, nil
 }
 
 func New(logger zerolog.Logger) tools.Tool {

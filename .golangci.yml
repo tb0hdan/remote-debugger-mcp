@@ -8,12 +8,30 @@ linters:
     - bodyclose
     - containedctx
     - contextcheck
+    - decorder
+    - dogsled
+    - dupl
     - fatcontext
+    - funcorder
     - godot
     - godox
+    - gocritic
     - gocyclo
     - importas
+    - intrange
+    - mnd
+    - loggercheck
+    - nilnil
+    - noctx
+    - nosprintfhostport
+    - perfsprint
+    - prealloc
+    - reassign
+    - unconvert
     - unparam
+    - varnamelen
+    - wastedassign
+    - zerologlint
 
 run:
   concurrency: 4

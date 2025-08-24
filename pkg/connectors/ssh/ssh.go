@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -27,6 +28,10 @@ func New(host string, port int, user string) *Connector {
 	}
 	if user == "" {
 		user = os.Getenv("USER")
+		if user == "" {
+			// Fallback to root. For the brave.
+			user = "root"
+		}
 	}
 	return &Connector{
 		config: Config{
@@ -44,9 +49,14 @@ func (c *Connector) GetTarget() string {
 
 // BuildSSHArgs builds common SSH arguments.
 func (c *Connector) BuildSSHArgs() []string {
-	args := []string{}
-	if c.config.Port != 22 {
-		args = append(args, "-p", fmt.Sprintf("%d", c.config.Port))
+	args := []string{
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=10",
+	}
+	const defaultSSHPort = 22
+	if c.config.Port != defaultSSHPort {
+		args = append(args, "-p", strconv.Itoa(c.config.Port))
 	}
 	args = append(args, c.GetTarget())
 	return args
@@ -54,9 +64,14 @@ func (c *Connector) BuildSSHArgs() []string {
 
 // BuildSCPArgs builds SCP arguments for file transfer.
 func (c *Connector) BuildSCPArgs() []string {
-	args := []string{}
-	if c.config.Port != 22 {
-		args = append(args, "-P", fmt.Sprintf("%d", c.config.Port))
+	args := []string{
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=10",
+	}
+	const defaultSSHPort = 22
+	if c.config.Port != defaultSSHPort {
+		args = append(args, "-P", strconv.Itoa(c.config.Port))
 	}
 	return args
 }
@@ -98,7 +113,11 @@ func (c *Connector) ExecuteCommandWithExitCode(command string) (string, int, err
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
-			err = nil // Don't treat non-zero exit as error
+			// Only clear error for non-zero exit codes, not for actual execution failures
+			// This preserves the exit code but doesn't hide real errors
+		} else {
+			// Real execution error (e.g., SSH connection failed)
+			return "", -1, err
 		}
 	}
 
@@ -110,7 +129,7 @@ func (c *Connector) ExecuteCommandWithExitCode(command string) (string, int, err
 		output += "STDERR:\n" + stderr.String()
 	}
 
-	return output, exitCode, err
+	return output, exitCode, nil
 }
 
 // CopyFile copies a local file to the remote host.
@@ -145,13 +164,13 @@ func (c *Connector) CopyFileFromRemote(remotePath, localPath string) error {
 
 // MakeExecutable makes a file executable on the remote host.
 func (c *Connector) MakeExecutable(remotePath string) error {
-	_, err := c.ExecuteCommand(fmt.Sprintf("chmod +x %s", EscapeArg(remotePath)))
+	_, err := c.ExecuteCommand("chmod +x " + EscapeArg(remotePath))
 	return err
 }
 
 // RemoveFile removes a file on the remote host.
 func (c *Connector) RemoveFile(remotePath string) error {
-	_, err := c.ExecuteCommand(fmt.Sprintf("rm -f %s", EscapeArg(remotePath)))
+	_, err := c.ExecuteCommand("rm -f " + EscapeArg(remotePath))
 	return err
 }
 
@@ -171,8 +190,18 @@ func (c *Connector) TestConnection() error {
 }
 
 // EscapeArg escapes a single argument for shell execution.
+// This prevents shell injection by properly escaping special characters.
 func EscapeArg(arg string) string {
-	return fmt.Sprintf("'%s'", strings.ReplaceAll(arg, "'", "'\\''"))
+	// Replace single quotes with escaped version
+	escaped := strings.ReplaceAll(arg, "'", "'\\''")
+	// Reject any control characters to prevent more sophisticated attacks
+	for _, r := range escaped {
+		if r < 32 || r == 127 {
+			// Log warning about control characters and sanitize
+			escaped = strings.ReplaceAll(escaped, string(r), "")
+		}
+	}
+	return fmt.Sprintf("'%s'", escaped)
 }
 
 // EscapeArgs escapes multiple arguments for shell execution.

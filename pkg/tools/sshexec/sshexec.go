@@ -2,6 +2,7 @@ package sshexec
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,12 +50,22 @@ type Tool struct {
 	logger zerolog.Logger
 }
 
+func (s *Tool) Register(server *mcp.Server) {
+	sshExecTool := &mcp.Tool{
+		Name:        "sshexec",
+		Description: "Transfer and execute a binary on a remote host via SSH, or kill remote processes",
+	}
+
+	mcp.AddTool(server, sshExecTool, s.SSHExecHandler)
+	s.logger.Debug().Msg("sshexec tool registered")
+}
+
 func (s *Tool) SSHExecHandler(_ context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
 	input := params.Arguments
 
 	// Validate required fields
 	if input.Host == "" {
-		return nil, fmt.Errorf("host is required")
+		return nil, errors.New("host is required")
 	}
 
 	// Determine operation mode
@@ -63,13 +74,13 @@ func (s *Tool) SSHExecHandler(_ context.Context, _ *mcp.ServerSession, params *m
 
 	// Validate operation mode
 	if isKillMode && isExecMode {
-		return nil, fmt.Errorf("cannot specify both kill parameters and binary_path - choose either kill or exec mode")
+		return nil, errors.New("cannot specify both kill parameters and binary_path - choose either kill or exec mode")
 	}
 	if !isKillMode && !isExecMode {
-		return nil, fmt.Errorf("must specify either kill parameters (kill_pid or kill_by_name) or binary_path for execution")
+		return nil, errors.New("must specify either kill parameters (kill_pid or kill_by_name) or binary_path for execution")
 	}
 	if input.KillPID > 0 && input.KillByName != "" {
-		return nil, fmt.Errorf("cannot specify both kill_pid and kill_by_name - choose one")
+		return nil, errors.New("cannot specify both kill_pid and kill_by_name - choose one")
 	}
 
 	// Set defaults
@@ -85,18 +96,24 @@ func (s *Tool) SSHExecHandler(_ context.Context, _ *mcp.ServerSession, params *m
 
 	if isKillMode {
 		return s.handleKillMode(input, conn)
-	} else {
+	}
+	
 		maxLines := types.MaxDefaultLines
 		if input.MaxLines > 0 {
+		const maxAllowedLines = 100000
+		if input.MaxLines > maxAllowedLines {
+				return nil, errors.New("max_lines cannot exceed 100000")
+			}
 			maxLines = input.MaxLines
 		}
 
 		offset := 0
-		if input.Offset > 0 {
+		if input.Offset >= 0 {
 			offset = input.Offset
+		} else if input.Offset < 0 {
+			return nil, errors.New("offset cannot be negative")
 		}
-		return s.handleExecMode(input, conn, maxLines, offset)
-	}
+	return s.handleExecMode(input, conn, maxLines, offset)
 }
 
 func (s *Tool) handleKillMode(input Input, conn *ssh.Connector) (*mcp.CallToolResultFor[Output], error) {
@@ -114,7 +131,10 @@ func (s *Tool) handleKillMode(input Input, conn *ssh.Connector) (*mcp.CallToolRe
 	} else {
 		operation = fmt.Sprintf("kill processes matching '%s'", input.KillByName)
 		// Use pkill which is safer and more precise than killall
-		remoteCommand = fmt.Sprintf("pkill -%s -f '%s' && echo 'Processes matching \"%s\" killed with signal %s' || echo 'No processes found matching \"%s\" or kill failed'", signal, input.KillByName, input.KillByName, signal, input.KillByName)
+		// -x flag matches exact process name
+		// Properly escape the process name to prevent shell injection
+		escapedName := ssh.EscapeArg(input.KillByName)
+		remoteCommand = fmt.Sprintf("pkill -%s -x %s && echo 'Processes matching \"%s\" killed with signal %s' || echo 'No processes found matching \"%s\" or kill failed'", signal, escapedName, input.KillByName, signal, input.KillByName)
 	}
 
 	s.logger.Debug().
@@ -169,6 +189,8 @@ func (s *Tool) handleExecMode(input Input, conn *ssh.Connector, maxLines, offset
 
 	// Step 2: Make binary executable
 	if err := conn.MakeExecutable(remotePath); err != nil {
+		// Clean up the transferred binary on error
+		_ = conn.RemoveFile(remotePath)
 		return nil, fmt.Errorf("failed to make binary executable: %v", err)
 	}
 
@@ -186,11 +208,9 @@ func (s *Tool) handleExecMode(input Input, conn *ssh.Connector, maxLines, offset
 			// For background processes, we can't easily clean up after exit, so warn user
 			s.logger.Warn().Msg("cleanup disabled for background processes - binary will remain on remote host")
 		}
-	} else {
+	} else if cleanup {
 		// Add cleanup command if requested (only for foreground processes)
-		if cleanup {
-			remoteCommand = fmt.Sprintf("%s; EXIT_CODE=$?; rm -f %s; exit $EXIT_CODE", remoteCommand, remotePath)
-		}
+		remoteCommand = fmt.Sprintf("%s; EXIT_CODE=$?; rm -f %s; exit $EXIT_CODE", remoteCommand, remotePath)
 	}
 
 	output, exitCode, err := conn.ExecuteCommandWithExitCode(remoteCommand)
@@ -235,16 +255,6 @@ func (s *Tool) handleExecMode(input Input, conn *ssh.Connector, maxLines, offset
 			},
 		},
 	}, nil
-}
-
-func (s *Tool) Register(server *mcp.Server) {
-	sshExecTool := &mcp.Tool{
-		Name:        "sshexec",
-		Description: "Transfer and execute a binary on a remote host via SSH, or kill remote processes",
-	}
-
-	mcp.AddTool(server, sshExecTool, s.SSHExecHandler)
-	s.logger.Debug().Msg("sshexec tool registered")
 }
 
 func New(logger zerolog.Logger) tools.Tool {
