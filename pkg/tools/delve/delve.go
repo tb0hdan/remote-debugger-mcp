@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/server"
@@ -16,11 +17,11 @@ import (
 )
 
 type Input struct {
-	Host     string `json:"host,omitempty"`
-	Port     int    `json:"port,omitempty"`
-	Command  string `json:"command,omitempty"`
-	MaxLines int    `json:"max_lines,omitempty"` // Maximum lines to return (default: 1000)
-	Offset   int    `json:"offset,omitempty"`    // Line offset for pagination
+	Host     string `json:"host,omitempty" validate:"omitempty,hostname|ip"`
+	Port     int    `json:"port,omitempty" validate:"min=0,max=65535"`
+	Command  string `json:"command,omitempty" validate:"max=4096"`
+	MaxLines int    `json:"max_lines,omitempty" validate:"min=0,max=100000"` // Maximum lines to return (default: 1000)
+	Offset   int    `json:"offset,omitempty" validate:"min=0"`                 // Line offset for pagination
 }
 
 type Output struct {
@@ -35,11 +36,17 @@ type Output struct {
 }
 
 type Tool struct {
-	logger zerolog.Logger
+	logger    zerolog.Logger
+	validator *validator.Validate
 }
 
 func (d *Tool) DelveHandler(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
 	input := params.Arguments
+
+	// Validate input using validator
+	if err := d.validator.Struct(input); err != nil {
+		return nil, fmt.Errorf("validation error: %w", err)
+	}
 
 	host := "localhost"
 	if input.Host != "" {
@@ -174,7 +181,10 @@ func (d *Tool) Register(srv *server.Server) {
 }
 
 func New(logger zerolog.Logger) tools.Tool {
+	validate := validator.New()
+
 	return &Tool{
-		logger: logger.With().Str("tool", "delve").Logger(),
+		logger:    logger.With().Str("tool", "delve").Logger(),
+		validator: validate,
 	}
 }

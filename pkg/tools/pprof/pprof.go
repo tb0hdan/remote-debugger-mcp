@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/server"
@@ -19,12 +20,12 @@ import (
 )
 
 type Input struct {
-	Host     string `json:"host,omitempty"`
-	Port     int    `json:"port,omitempty"`
-	Profile  string `json:"profile,omitempty"`
-	Seconds  int    `json:"seconds,omitempty"`
-	MaxLines int    `json:"max_lines,omitempty"` // Maximum lines to return (default: 100 for top view)
-	Offset   int    `json:"offset,omitempty"`    // Line offset for pagination
+	Host     string `json:"host,omitempty" validate:"omitempty,hostname|ip"`
+	Port     int    `json:"port,omitempty" validate:"min=0,max=65535"`
+	Profile  string `json:"profile,omitempty" validate:"omitempty,alphanum|contains=/,max=255"`
+	Seconds  int    `json:"seconds,omitempty" validate:"min=0,max=3600"`
+	MaxLines int    `json:"max_lines,omitempty" validate:"min=0,max=100000"` // Maximum lines to return (default: 100 for top view)
+	Offset   int    `json:"offset,omitempty" validate:"min=0"`                 // Line offset for pagination
 }
 
 type Output struct {
@@ -40,7 +41,8 @@ type Output struct {
 }
 
 type Tool struct {
-	logger zerolog.Logger
+	logger    zerolog.Logger
+	validator *validator.Validate
 }
 
 func (p *Tool) Register(srv *server.Server) {
@@ -55,6 +57,11 @@ func (p *Tool) Register(srv *server.Server) {
 
 func (p *Tool) PprofHandler(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
 	input := params.Arguments
+
+	// Validate input using validator
+	if err := p.validator.Struct(input); err != nil {
+		return nil, fmt.Errorf("validation error: %w", err)
+	}
 
 	host := "localhost"
 	if input.Host != "" {
@@ -222,7 +229,10 @@ func (p *Tool) fetchAvailableProfiles(ctx context.Context, baseURL string) ([]st
 }
 
 func New(logger zerolog.Logger) tools.Tool {
+	validate := validator.New()
+
 	return &Tool{
-		logger: logger.With().Str("tool", "pprof").Logger(),
+		logger:    logger.With().Str("tool", "pprof").Logger(),
+		validator: validate,
 	}
 }

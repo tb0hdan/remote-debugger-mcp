@@ -26,6 +26,7 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
    - **Delve Tool** (`pkg/tools/delve/delve.go`) - Remote Go debugger integration
    - **pprof Tool** (`pkg/tools/pprof/pprof.go`) - Go profiling integration
    - **SSH Exec Tool** (`pkg/tools/sshexec/sshexec.go`) - Remote binary execution via SSH
+   - **Kube Tool** (`pkg/tools/kube/kube.go`) - Kubernetes port-forward operations
    - **System Info Tool** (`pkg/tools/sysinfo/sysinfo.go`) - System information gathering
 
 4. **Connectors:**
@@ -35,6 +36,8 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 
 - `github.com/modelcontextprotocol/go-sdk v0.2.0` - MCP SDK
 - `github.com/rs/zerolog v1.34.0` - Structured logging
+- `github.com/go-playground/validator/v10 v10.23.0` - Input validation
+- `github.com/stretchr/testify v1.11.0` - Testing framework
 
 ## Current Tools
 
@@ -114,7 +117,28 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 - `max_lines` (optional): Maximum lines to return (default: 1000)
 - `offset` (optional): Line offset for pagination
 
-### 4. System Info Tool
+### 4. Kube Tool
+
+**Purpose:** Kubernetes operations for debugging containerized applications
+
+**Features:**
+- kubectl port-forward for pods and services
+- Automatic port availability checking and allocation
+- Support for multiple Kubernetes contexts and namespaces
+- Background port-forwarding management
+- Kubeconfig file support
+
+**Input Parameters:**
+- `action` (required): Action to perform (currently: "port-forward")
+- `namespace` (optional): Kubernetes namespace (default: "default")
+- `resource` (required for port-forward): Resource to act on (e.g., "pod/my-pod", "service/my-service")
+- `local_port` (optional): Local port for port-forward (default: 6060)
+- `remote_port` (optional): Remote port for port-forward (defaults to local_port)
+- `kubeconfig` (optional): Path to kubeconfig file
+- `context` (optional): Kubernetes context to use
+- `extra_args` (optional): Additional kubectl arguments
+
+### 5. System Info Tool
 
 **Purpose:** Gather comprehensive system information from local or remote hosts
 
@@ -139,6 +163,7 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 - `make` or `make all` - Run linter and build
 - `make lint` - Run golangci-lint
 - `make build` - Build binary to `build/remote-debugger-mcp`
+- `make test` - Run test suites
 - `make tools` - Install development tools
 - `make tag` - Tag and push current version
 
@@ -146,6 +171,9 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 
 **Branch:** master  
 **Recent Changes:**
+- **NEW:** Added comprehensive input validation with go-playground/validator
+- **NEW:** Added complete test suites for all tools with stretchr/testify
+- **NEW:** Input validation protects against injection vulnerabilities
 - Added BSD 3-Clause License
 - Added SSH Exec tool for remote binary execution
 - Added System Info tool for system resource monitoring
@@ -155,14 +183,21 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 - Updated README with similar projects section
 
 **Current Modified/Added Files:**
+- **NEW:** `pkg/tools/delve/delve_test.go` - Complete test suite for Delve tool
+- **NEW:** `pkg/tools/sshexec/sshexec_test.go` - Complete test suite for SSH exec tool
+- **NEW:** `pkg/tools/pprof/pprof_test.go` - Complete test suite for pprof tool
+- **NEW:** `pkg/tools/kube/kube_test.go` - Complete test suite for Kube tool
+- **NEW:** `pkg/tools/sysinfo/sysinfo_test.go` - Complete test suite for System info tool
 - `.golangci.yml` - Linter configuration (modified)
 - `README.md` - Documentation updates (modified)
 - `cmd/debugger/main.go` - Main server implementation (modified)
+- `go.mod` / `go.sum` - Added validator and testify dependencies (modified)
 - `pkg/connectors/ssh/ssh.go` - SSH connector (new)
-- `pkg/tools/delve/delve.go` - Delve tool (modified)
-- `pkg/tools/pprof/pprof.go` - Renamed from profiler (renamed/modified)
-- `pkg/tools/sshexec/sshexec.go` - SSH exec tool (new)
-- `pkg/tools/sysinfo/sysinfo.go` - System info tool (new)
+- `pkg/tools/delve/delve.go` - Delve tool with validation (modified)
+- `pkg/tools/pprof/pprof.go` - pprof tool with validation (modified)
+- `pkg/tools/sshexec/sshexec.go` - SSH exec tool with validation (modified)
+- `pkg/tools/sysinfo/sysinfo.go` - System info tool with validation (modified)
+- `pkg/tools/kube/kube.go` - Kube tool with validation (new)
 
 ## Integration
 
@@ -224,6 +259,19 @@ sshexec Host=192.168.1.100 KillByName=myapp KillSignal=KILL
 "Kill PID 12345 on remote server with SIGTERM"
 ```
 
+### Kube Integration
+```bash
+# Port-forward a pod to local port 8080
+kube Action=port-forward Resource=pod/my-app LocalPort=8080 RemotePort=8080
+
+# Port-forward a service with specific context and namespace
+kube Action=port-forward Resource=service/web-service Namespace=production Context=prod-cluster LocalPort=3000 RemotePort=80
+
+# Natural language examples
+"Set up port forward from pod/redis in namespace cache to local port 6379"
+"Forward port 8080 from service/api in production namespace using prod context"
+```
+
 ### System Info Integration  
 ```bash
 # Get local system information
@@ -246,25 +294,31 @@ sysinfo SSHHost=192.168.1.100 SSHUser=admin
 - ✅ SSH exec tool for remote binary execution
 - ✅ **NEW:** SSH exec tool process killing (PID and name-based)
 - ✅ **NEW:** Configurable kill signals (TERM, KILL, etc.)
+- ✅ Kubernetes port-forward tool for pod/service debugging
 - ✅ System info tool for resource monitoring (local and remote)
 - ✅ SSH connector for shared SSH functionality
 - ✅ Background process execution and management
 - ✅ Pagination support for large outputs
 - ✅ Structured logging with debug mode
 - ✅ Build system with linting and golangci-lint configuration
+- ✅ **NEW:** Comprehensive input validation using go-playground/validator
+- ✅ **NEW:** Complete test coverage with stretchr/testify suite framework
+- ✅ **NEW:** Injection vulnerability protection for all user inputs
+- ✅ **NEW:** Test suites for all tools with validation testing
 - ✅ Version management
 - ✅ Error handling and connection management
 - ✅ BSD 3-Clause licensing
 
 ### Technical Debt & Improvements Needed
-- [ ] Add comprehensive test coverage
+- ✅ ~~Add comprehensive test coverage~~ (COMPLETED)
+- ✅ ~~Add tool parameter validation~~ (COMPLETED)
 - [ ] Add configuration file support
 - [ ] Implement authentication/authorization
 - [ ] Add metrics and monitoring
 - [ ] Add Docker support
-- [ ] Add tool parameter validation
 - [ ] Consider WebSocket transport for real-time debugging
 - [ ] Add support for additional debugger backends
+- [ ] Add integration tests for end-to-end scenarios
 
 ### Known Limitations
 - Currently Go-specific (Delve, pprof)
@@ -286,12 +340,15 @@ This is a debugging/profiling tool that:
 
 **SSH Security:** The SSH-based tools rely on the system's SSH configuration and authentication mechanisms (SSH keys, agent forwarding, etc.). Ensure proper SSH security practices are followed.
 
+**Input Validation:** All user-supplied inputs are validated using go-playground/validator to protect against injection vulnerabilities. This includes hostname validation, port range validation, path length limits, and content sanitization.
+
 ## Next Steps Recommendations
 
-1. Add comprehensive test suite
-2. Implement input validation and sanitization
+1. ~~Add comprehensive test suite~~ ✅ COMPLETED
+2. ~~Implement input validation and sanitization~~ ✅ COMPLETED  
 3. Add configuration management
 4. Consider rate limiting and authentication
 5. Add Docker containerization
 6. Expand documentation with more examples
 7. Add CI/CD pipeline
+8. Add integration tests for complete workflows

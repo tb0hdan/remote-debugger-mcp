@@ -20,6 +20,7 @@ import (
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/server"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/delve"
+	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/kube"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/pprof"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/sshexec"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/tools/sysinfo"
@@ -72,6 +73,7 @@ func main() {
 		delve.New(logger),
 		sshexec.New(logger),
 		sysinfo.New(logger),
+		kube.New(logger),
 	}
 	// Register all tools
 	for _, tool := range toolList {

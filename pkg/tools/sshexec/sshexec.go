@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/connectors/ssh"
@@ -17,19 +18,19 @@ import (
 )
 
 type Input struct {
-	Host            string   `json:"host"`                        // SSH host (required)
-	Port            int      `json:"port,omitempty"`              // SSH port (default: 22)
-	User            string   `json:"user,omitempty"`              // SSH user (default: current user)
-	BinaryPath      string   `json:"binary_path,omitempty"`       // Local binary path to transfer (required for exec, optional for kill)
-	RemotePath      string   `json:"remote_path,omitempty"`       // Remote destination path (default: /tmp/<filename>)
+	Host            string   `json:"host" validate:"required,hostname|ip"`  // SSH host (required)
+	Port            int      `json:"port,omitempty" validate:"min=0,max=65535"` // SSH port (default: 22)
+	User            string   `json:"user,omitempty" validate:"omitempty,alphanum|contains=-|contains=_,max=32"` // SSH user (default: current user)
+	BinaryPath      string   `json:"binary_path,omitempty" validate:"omitempty,filepath"` // Local binary path to transfer (required for exec, optional for kill)
+	RemotePath      string   `json:"remote_path,omitempty" validate:"omitempty,max=4096"` // Remote destination path (default: /tmp/<filename>)
 	Args            []string `json:"args,omitempty"`              // Arguments to pass to the binary
 	KeepBinary      bool     `json:"keep_binary,omitempty"`       // Keep binary after execution (default: false, meaning cleanup)
 	RunInBackground bool     `json:"run_in_background,omitempty"` // Run process in background (default: false)
-	KillPID         int      `json:"kill_pid,omitempty"`          // PID to kill on remote host (mutually exclusive with exec)
-	KillByName      string   `json:"kill_by_name,omitempty"`      // Kill processes by name pattern (mutually exclusive with exec and kill_pid)
-	KillSignal      string   `json:"kill_signal,omitempty"`       // Signal to send when killing (default: TERM)
-	MaxLines        int      `json:"max_lines,omitempty"`         // Maximum lines to return (default: 1000)
-	Offset          int      `json:"offset,omitempty"`            // Line offset for pagination
+	KillPID         int      `json:"kill_pid,omitempty" validate:"min=0,max=2147483647"` // PID to kill on remote host (mutually exclusive with exec)
+	KillByName      string   `json:"kill_by_name,omitempty" validate:"omitempty,max=255"` // Kill processes by name pattern (mutually exclusive with exec and kill_pid)
+	KillSignal      string   `json:"kill_signal,omitempty" validate:"omitempty,alpha,max=16"` // Signal to send when killing (default: TERM)
+	MaxLines        int      `json:"max_lines,omitempty" validate:"min=0,max=100000"` // Maximum lines to return (default: 1000)
+	Offset          int      `json:"offset,omitempty" validate:"min=0"` // Line offset for pagination
 }
 
 type Output struct {
@@ -48,7 +49,8 @@ type Output struct {
 }
 
 type Tool struct {
-	logger zerolog.Logger
+	logger    zerolog.Logger
+	validator *validator.Validate
 }
 
 func (s *Tool) Register(srv *server.Server) {
@@ -64,7 +66,12 @@ func (s *Tool) Register(srv *server.Server) {
 func (s *Tool) SSHExecHandler(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
 	input := params.Arguments
 
-	// Validate required fields
+	// Validate input using validator
+	if err := s.validator.Struct(input); err != nil {
+		return nil, fmt.Errorf("validation error: %w", err)
+	}
+
+	// Additional validation for required fields based on mode
 	if input.Host == "" {
 		return nil, errors.New("host is required")
 	}
@@ -258,7 +265,10 @@ func (s *Tool) handleExecMode(ctx context.Context, input Input, conn *ssh.Connec
 }
 
 func New(logger zerolog.Logger) tools.Tool {
+	validate := validator.New()
+
 	return &Tool{
-		logger: logger.With().Str("tool", "sshexec").Logger(),
+		logger:    logger.With().Str("tool", "sshexec").Logger(),
+		validator: validate,
 	}
 }

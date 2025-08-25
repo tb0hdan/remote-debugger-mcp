@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/tb0hdan/remote-debugger-mcp/pkg/connectors/ssh"
@@ -17,11 +18,11 @@ import (
 )
 
 type Input struct {
-	SSHHost  string `json:"ssh_host,omitempty"`  // SSH host for remote execution
-	SSHPort  int    `json:"ssh_port,omitempty"`  // SSH port for remote execution (default: 22)
-	SSHUser  string `json:"ssh_user,omitempty"`  // SSH user for remote execution
-	MaxLines int    `json:"max_lines,omitempty"` // Maximum lines to return (default: 1000)
-	Offset   int    `json:"offset,omitempty"`    // Line offset for pagination
+	SSHHost  string `json:"ssh_host,omitempty" validate:"omitempty,hostname|ip"`  // SSH host for remote execution
+	SSHPort  int    `json:"ssh_port,omitempty" validate:"min=0,max=65535"`  // SSH port for remote execution (default: 22)
+	SSHUser  string `json:"ssh_user,omitempty" validate:"omitempty,alphanum|contains=-|contains=_,max=32"`  // SSH user for remote execution
+	MaxLines int    `json:"max_lines,omitempty" validate:"min=0,max=100000"` // Maximum lines to return (default: 1000)
+	Offset   int    `json:"offset,omitempty" validate:"min=0"`    // Line offset for pagination
 }
 
 type SystemInfo struct {
@@ -56,7 +57,8 @@ type MemoryInfo struct {
 }
 
 type Tool struct {
-	logger zerolog.Logger
+	logger    zerolog.Logger
+	validator *validator.Validate
 }
 
 func (s *Tool) Register(srv *server.Server) {
@@ -71,6 +73,11 @@ func (s *Tool) Register(srv *server.Server) {
 
 func (s *Tool) SysInfoHandler(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[SystemInfo], error) {
 	input := params.Arguments
+
+	// Validate input using validator
+	if err := s.validator.Struct(input); err != nil {
+		return nil, fmt.Errorf("validation error: %w", err)
+	}
 
 	// Determine if this is local or remote execution
 	var conn *ssh.Connector
@@ -379,7 +386,10 @@ func (s *Tool) formatSystemInfo(info *SystemInfo, target string) string {
 }
 
 func New(logger zerolog.Logger) tools.Tool {
+	validate := validator.New()
+
 	return &Tool{
-		logger: logger.With().Str("tool", "sysinfo").Logger(),
+		logger:    logger.With().Str("tool", "sysinfo").Logger(),
+		validator: validate,
 	}
 }

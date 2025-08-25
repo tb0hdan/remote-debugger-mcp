@@ -7,6 +7,7 @@ This is a Model Context Protocol (MCP) server that provides a set remote debuggi
 Available tools:
 
 - [delve](https://github.com/go-delve/delve)
+- kube - port-forwarding to Kubernetes pods
 - [pprof](https://pkg.go.dev/net/http/pprof)
 - sshexec
 - sysinfo - both local and remote system information via SSH
