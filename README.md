@@ -7,7 +7,7 @@ This is a Model Context Protocol (MCP) server that runs on your machine and prov
 Available tools:
 
 - [delve](https://github.com/go-delve/delve) - non-interactive commands only
-- kube - port-forwarding to Kubernetes pods
+- kube - port-forwarding to Kubernetes clusters (requires kubectl configured)
 - [pprof](https://pkg.go.dev/net/http/pprof)
 - sshexec - requires SSH access already configured
 - sysinfo - both local and remote system information via SSH
@@ -39,7 +39,7 @@ make
 then just
 
 ```bash
-build/remote-debugger-mcp
+build/remote-debugger-mcp -debug
 ```
 
 
@@ -63,6 +63,20 @@ Sample agent usage
 
 ```
 delve Command=help
+```
+
+### kube
+
+You can use deployment [pprof-test-deployment.yaml](deployments/pprof-test/pprof-test-deployment.yaml) to test kube tool.
+
+```
+kubectl apply -f deployments/pprof-test/pprof-test-deployment.yaml
+```
+
+Then use the following command to port forward and gather pprof heap profile.
+
+```
+Use kube tool to port forward deployment pprof-test-deployment, then gather pprof heap. Stop port forwarding.
 ```
 
 

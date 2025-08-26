@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pprof-test-deployment
+  labels:
+    app: pprof-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pprof-test
+  template:
+    metadata:
+      labels:
+        app: pprof-test
+    spec:
+      containers:
+        - name: pprof-test-container
+          image: "tb0hdan/pprof-test:latest"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080

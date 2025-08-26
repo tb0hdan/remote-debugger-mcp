@@ -32,3 +32,12 @@ test: build-dir
 test-integration:
 	@echo "Running integration tests (requires SSH access)..."
 	@go test -v -race -timeout 30s ./...
+
+pprof-build: build-dir
+	@echo "Building pprof tool..."
+	@CGO_ENABLED=0 go build -o build/pprof-test-linux-amd64 ./cmd/pprof-test
+
+pprof-image: pprof-build
+	@echo "Building pprof image..."
+	@docker build -t tb0hdan/pprof-test -f deployments/pprof-test/pprof-test.Dockerfile .
+	@docker tag tb0hdan/pprof-test tb0hdan/pprof-test:latest
