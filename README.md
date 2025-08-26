@@ -67,10 +67,10 @@ delve Command=help
 
 ### kube
 
-You can use deployment [pprof-test-deployment.yaml](deployments/pprof-test/pprof-test-deployment.yaml) to test kube tool.
+You can use deployment [pprof-test.yaml](deployments/pprof-test/pprof-test.yaml) to test kube tool.
 
 ```
-kubectl apply -f deployments/pprof-test/pprof-test-deployment.yaml
+kubectl apply -f deployments/pprof-test/pprof-test.yaml
 ```
 
 Then use the following command to port forward and gather pprof heap profile.
@@ -142,6 +142,19 @@ sysinfo Host=192.168.4.15
 Build this project locally and then transfer it to remote host 192.168.4.15 using sshexec tool. Run it there with -bind 192.168.4.15:8899.
 Then fetch profiling information using pprof tool, show it here, terminate remote binary.
 ```
+
+## Security considerations
+
+### pprof
+
+Enabling pprof in your application exposes sensitive information about your application's performance and behavior. 
+To ensure that access to pprof endpoints is restricted to trusted users only, use a separate web framework, that is
+not affected by pprof's `init()` function. For sample code, see [cmd/pprof-test/main.go](cmd/pprof-test/main.go).
+
+### General security
+Consider using authentication mechanisms or network-level restrictions (e.g., firewalls, VPNs) to limit access.
+
+
 
 ## Similar projects
 
