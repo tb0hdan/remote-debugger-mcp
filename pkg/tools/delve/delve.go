@@ -2,7 +2,6 @@ package delve
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -32,10 +32,10 @@ type Input struct {
 	Host      string `json:"host,omitempty" validate:"omitempty,hostname|ip"`
 	Port      int    `json:"port,omitempty" validate:"min=0,max=65535"`
 	Command   string `json:"command,omitempty" validate:"max=4096"`
-	SessionID string `json:"session_id,omitempty" validate:"omitempty,alphanum,max=64"` // Session ID for persistent connections
+	SessionID string `json:"session_id,omitempty" validate:"omitempty,max=64"`                       // Session ID for persistent connections
 	Action    string `json:"action,omitempty" validate:"omitempty,oneof=connect disconnect command"` // Action: connect, disconnect, or command (default: command)
-	MaxLines  int    `json:"max_lines,omitempty" validate:"min=0,max=100000"` // Maximum lines to return (default: 1000)
-	Offset    int    `json:"offset,omitempty" validate:"min=0"`                 // Line offset for pagination
+	MaxLines  int    `json:"max_lines,omitempty" validate:"min=0,max=100000"`                        // Maximum lines to return (default: 1000)
+	Offset    int    `json:"offset,omitempty" validate:"min=0"`                                      // Line offset for pagination
 }
 
 type Output struct {
@@ -54,15 +54,16 @@ type Output struct {
 
 // DelveSession represents a persistent Delve debugger connection.
 type DelveSession struct {
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	stdout   io.ReadCloser
-	stderr   io.ReadCloser
-	scanner  *bufio.Scanner
-	host     string
-	port     int
-	mu       sync.Mutex
-	lastUsed time.Time
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    io.ReadCloser
+	stderr    io.ReadCloser
+	scanner   *bufio.Scanner
+	host      string
+	port      int
+	mu        sync.Mutex
+	lastUsed  time.Time
+	ctxCancel context.CancelFunc // To cancel the background context
 }
 
 type Tool struct {
@@ -72,7 +73,7 @@ type Tool struct {
 	sessionMu sync.RWMutex
 }
 
-func (d *Tool) DelveHandler(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
+func (d *Tool) DelveHandler(ctx context.Context, session *mcp.ServerSession, params *mcp.CallToolParamsFor[Input]) (*mcp.CallToolResultFor[Output], error) {
 	input := params.Arguments
 
 	// Validate input using validator
@@ -95,13 +96,13 @@ func (d *Tool) DelveHandler(ctx context.Context, _ *mcp.ServerSession, params *m
 		action = input.Action
 	}
 
-	// Handle session-based operations
-	if input.SessionID != "" {
-		return d.handleSessionOperation(ctx, input, host, port, action)
+	// Fallback to MCP session ID if no session_id provided
+	if input.SessionID == "" {
+		input.SessionID = session.ID()
 	}
 
 	// Non-session mode (backward compatibility)
-	return d.handleSingleCommand(ctx, input, host, port)
+	return d.handleSessionOperation(ctx, input, host, port, action)
 }
 
 func (d *Tool) Register(srv *server.Server) {
@@ -128,16 +129,8 @@ func (d *Tool) cleanupStaleSessions() {
 		for sessionID, session := range d.sessions {
 			if now.Sub(session.lastUsed) > sessionMaxIdleTime {
 				d.logger.Info().Msgf("Cleaning up stale session %s", sessionID)
-				// Send exit command
-				if session.stdin != nil {
-					_, _ = fmt.Fprintf(session.stdin, "exit\n")
-					time.Sleep(disconnectDelay)
-					_ = session.stdin.Close()
-				}
-				// Cleanup
-				if session.cmd != nil && session.cmd.Process != nil {
-					_ = session.cmd.Process.Kill()
-				}
+				// Properly cleanup the session
+				d.cleanupSession(session)
 				delete(d.sessions, sessionID)
 			}
 		}
@@ -146,45 +139,66 @@ func (d *Tool) cleanupStaleSessions() {
 }
 
 // connectSession creates a new Delve session.
-func (d *Tool) connectSession(ctx context.Context, sessionID, host string, port int) (*DelveSession, error) {
+func (d *Tool) connectSession(_ context.Context, sessionID, host string, port int) (*DelveSession, error) {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	d.logger.Info().Msgf("Creating new Delve session %s at %s", sessionID, addr)
 
-	cmd := exec.CommandContext(ctx, "dlv", "connect", addr)
+	// Create a background context that won't be cancelled when the calling context ends
+	// Using context.WithoutCancel would be better but requires Go 1.21+
+	backgroundCtx, cancel := context.WithCancel(context.Background())
+	
+	// Create command with the background context
+	cmd := exec.CommandContext(backgroundCtx, "dlv", "connect", addr) //nolint:contextcheck // intentionally using a detached context for background process
+
+	// Set process group ID so we can kill the entire group
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+		Pgid:    0,
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to start dlv command: %w", err)
 	}
 
 	session := &DelveSession{
-		cmd:      cmd,
-		stdin:    stdin,
-		stdout:   stdout,
-		stderr:   stderr,
-		scanner:  bufio.NewScanner(stdout),
-		host:     host,
-		port:     port,
-		lastUsed: time.Now(),
+		cmd:       cmd,
+		stdin:     stdin,
+		stdout:    stdout,
+		stderr:    stderr,
+		scanner:   bufio.NewScanner(stdout),
+		host:      host,
+		port:      port,
+		lastUsed:  time.Now(),
+		ctxCancel: cancel,
 	}
+
+	// Start a goroutine to reap the process when it exits (prevents zombies)
+	go func() {
+		_ = cmd.Wait()
+	}()
 
 	// Read initial prompt
 	time.Sleep(sessionStartupDelay)
-	
+
 	return session, nil
 }
 
@@ -211,7 +225,7 @@ func (d *Tool) executeCommand(session *DelveSession, command string) (string, er
 			line := scanner.Text()
 			output.WriteString(line)
 			output.WriteString("\n")
-			
+
 			// Check for prompt indicating command completion
 			if strings.Contains(line, "(dlv)") || strings.Contains(line, ">") {
 				done <- true
@@ -247,21 +261,54 @@ func (d *Tool) disconnectSession(sessionID string) error {
 		return fmt.Errorf("session %s not found", sessionID)
 	}
 
-	// Send exit command
+	// Properly cleanup the session
+	d.cleanupSession(session)
+
+	delete(d.sessions, sessionID)
+	d.logger.Info().Msgf("Disconnected Delve session %s", sessionID)
+	return nil
+}
+
+// cleanupSession properly terminates a Delve session and prevents zombie processes.
+func (d *Tool) cleanupSession(session *DelveSession) {
+	if session == nil {
+		return
+	}
+
+	// Try to send exit command first for graceful shutdown
 	if session.stdin != nil {
 		_, _ = fmt.Fprintf(session.stdin, "exit\n")
 		time.Sleep(disconnectDelay)
 		_ = session.stdin.Close()
 	}
 
-	// Cleanup
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
+	// Close stdout and stderr pipes
+	if session.stdout != nil {
+		_ = session.stdout.Close()
+	}
+	if session.stderr != nil {
+		_ = session.stderr.Close()
 	}
 
-	delete(d.sessions, sessionID)
-	d.logger.Info().Msgf("Disconnected Delve session %s", sessionID)
-	return nil
+	// Kill the process group to ensure all child processes are terminated
+	if session.cmd != nil && session.cmd.Process != nil {
+		pgid := session.cmd.Process.Pid
+		// Try SIGTERM first for graceful shutdown
+		if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+			// If SIGTERM fails, try SIGKILL
+			if killErr := syscall.Kill(-pgid, syscall.SIGKILL); killErr != nil {
+				// Log the error but don't fail if the process is already gone
+				if !strings.Contains(killErr.Error(), "no such process") {
+					d.logger.Error().Err(killErr).Msg("Failed to kill Delve process group")
+				}
+			}
+		}
+	}
+
+	// Cancel the background context
+	if session.ctxCancel != nil {
+		session.ctxCancel()
+	}
 }
 
 // handleSessionOperation handles session-based operations.
@@ -378,119 +425,6 @@ func (d *Tool) handleCommand(input Input) (*mcp.CallToolResultFor[Output], error
 	paginatedOutput := strings.Join(lines, "\n")
 
 	resultText := fmt.Sprintf("Session %s - Command: %s\n", input.SessionID, command)
-	if truncated {
-		resultText += fmt.Sprintf("[Showing lines %d-%d of %d total lines. Use offset parameter to view more.]\n", offset+1, offset+len(lines), totalLines)
-	}
-	resultText += "\n" + strings.TrimSpace(paginatedOutput)
-
-	result := &mcp.CallToolResultFor[Output]{
-		Content: []mcp.Content{
-			&mcp.TextContent{
-				Text: resultText,
-			},
-		},
-	}
-
-	return result, nil
-}
-
-// handleSingleCommand handles a single command without session.
-func (d *Tool) handleSingleCommand(ctx context.Context, input Input, host string, port int) (*mcp.CallToolResultFor[Output], error) {
-	command := "help"
-	if input.Command != "" {
-		command = input.Command
-	}
-
-	addr := fmt.Sprintf("%s:%d", host, port)
-	d.logger.Info().Msgf("Connecting to Delve debugger at %s with command: %s", addr, command)
-
-	cmd := exec.CommandContext(ctx, "dlv", "connect", addr)
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start dlv command: %w", err)
-	}
-
-	commands := command + "\nexit\n"
-	if _, err := io.WriteString(stdin, commands); err != nil {
-		return nil, fmt.Errorf("failed to write commands to stdin: %w", err)
-	}
-
-	err = stdin.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	var outputBuf, errorBuf bytes.Buffer
-	go func() {
-		_, err := io.Copy(&outputBuf, stdout)
-		if err != nil {
-			d.logger.Error().Err(err).Msg("Failed to read from stdout")
-		}
-	}()
-	go func() {
-		_, err := io.Copy(&errorBuf, stderr)
-		if err != nil {
-			d.logger.Error().Err(err).Msg("Failed to read from stderr")
-		}
-	}()
-
-	if err := cmd.Wait(); err != nil {
-		if errorBuf.Len() > 0 {
-			return nil, fmt.Errorf("dlv command failed: %w\nError: %s", err, errorBuf.String())
-		}
-	}
-
-	output := outputBuf.String()
-	if errorBuf.Len() > 0 {
-		output += "\nErrors:\n" + errorBuf.String()
-	}
-
-	// Apply pagination
-	maxLines := types.MaxDefaultLines
-	if input.MaxLines > 0 {
-		maxLines = input.MaxLines
-	}
-
-	offset := 0
-	if input.Offset > 0 {
-		offset = input.Offset
-	}
-
-	lines := strings.Split(output, "\n")
-	totalLines := len(lines)
-
-	// Apply offset and limit
-	truncated := false
-	if offset < totalLines {
-		end := offset + maxLines
-		if end > totalLines {
-			end = totalLines
-		} else {
-			truncated = true
-		}
-		lines = lines[offset:end]
-	} else {
-		lines = []string{}
-	}
-
-	paginatedOutput := strings.Join(lines, "\n")
-
-	resultText := fmt.Sprintf("Delve debugger output for %s (command: %s):\n", addr, command)
 	if truncated {
 		resultText += fmt.Sprintf("[Showing lines %d-%d of %d total lines. Use offset parameter to view more.]\n", offset+1, offset+len(lines), totalLines)
 	}
