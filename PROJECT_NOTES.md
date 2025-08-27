@@ -4,7 +4,7 @@
 
 The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides debugging and profiling tools for Go applications. It acts as a bridge between AI coding assistants (like Claude Code and Gemini CLI) and remote debugging/profiling tools.
 
-**Current Version:** 1.0.0  
+**Current Version:** 1.1.0  
 **Language:** Go 1.24  
 **License:** BSD 3-Clause
 
@@ -43,21 +43,33 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 
 ### 1. Delve Debugger Tool
 
-**Purpose:** Connects to remote Delve debugger instances for interactive debugging
+**Purpose:** Connects to remote Delve debugger instances for interactive debugging with session support
 
 **Features:**
 - Connects to remote dlv servers via `dlv connect`
+- **NEW:** Session-based persistent connections for interactive debugging
+- **NEW:** Session management with automatic cleanup (30-minute timeout)
+- **NEW:** Three operation modes: connect, disconnect, command
+- **NEW:** Background session monitoring and cleanup
 - Configurable host/port (default: localhost:2345)  
-- Command execution with automatic exit
+- Command execution with automatic exit (legacy mode)
 - Pagination support (max_lines, offset)
 - Error handling for connection issues
+- Backward compatibility with single-command mode
 
 **Input Parameters:**
 - `host` (optional): Target host (default: localhost)
 - `port` (optional): Target port (default: 2345)
 - `command` (optional): Delve command to execute (default: help)
+- **NEW:** `session_id` (optional): Session identifier for persistent connections
+- **NEW:** `action` (optional): Operation type - connect, disconnect, or command (default: command)
 - `max_lines` (optional): Pagination limit (default: 1000)
 - `offset` (optional): Line offset for pagination
+
+**Session Usage:**
+1. Connect: `delve SessionID=debug1 Action=connect Host=localhost Port=2345`
+2. Execute commands: `delve SessionID=debug1 Action=command Command=continue`
+3. Disconnect: `delve SessionID=debug1 Action=disconnect`
 
 ### 2. pprof Profiler Tool
 
@@ -171,9 +183,15 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 
 **Branch:** master  
 **Recent Changes:**
-- **NEW:** Added comprehensive input validation with go-playground/validator
-- **NEW:** Added complete test suites for all tools with stretchr/testify
-- **NEW:** Input validation protects against injection vulnerabilities
+- **NEW:** Added session-based persistent connections to Delve debugger tool
+- **NEW:** Enhanced Delve tool with connect/disconnect/command actions  
+- **NEW:** Added automatic session cleanup and timeout management (30 minutes)
+- **NEW:** Added pprof-test-std test application for standard HTTP pprof integration
+- **NEW:** Updated pprof-test with HidePort option and startup logging
+- **NEW:** Enhanced Delve test suite with session management testing
+- Added comprehensive input validation with go-playground/validator
+- Added complete test suites for all tools with stretchr/testify
+- Input validation protects against injection vulnerabilities
 - Added BSD 3-Clause License
 - Added SSH Exec tool for remote binary execution
 - Added System Info tool for system resource monitoring
@@ -182,22 +200,26 @@ The Remote Debugger MCP is a Model Context Protocol (MCP) server that provides d
 - Added golangci-lint configuration
 - Updated README with similar projects section
 
-**Current Modified/Added Files:**
-- **NEW:** `pkg/tools/delve/delve_test.go` - Complete test suite for Delve tool
-- **NEW:** `pkg/tools/sshexec/sshexec_test.go` - Complete test suite for SSH exec tool
-- **NEW:** `pkg/tools/pprof/pprof_test.go` - Complete test suite for pprof tool
-- **NEW:** `pkg/tools/kube/kube_test.go` - Complete test suite for Kube tool
-- **NEW:** `pkg/tools/sysinfo/sysinfo_test.go` - Complete test suite for System info tool
-- `.golangci.yml` - Linter configuration (modified)
+**Current Staged Files:**
 - `README.md` - Documentation updates (modified)
-- `cmd/debugger/main.go` - Main server implementation (modified)
-- `go.mod` / `go.sum` - Added validator and testify dependencies (modified)
-- `pkg/connectors/ssh/ssh.go` - SSH connector (new)
-- `pkg/tools/delve/delve.go` - Delve tool with validation (modified)
-- `pkg/tools/pprof/pprof.go` - pprof tool with validation (modified)
-- `pkg/tools/sshexec/sshexec.go` - SSH exec tool with validation (modified)
-- `pkg/tools/sysinfo/sysinfo.go` - System info tool with validation (modified)
-- `pkg/tools/kube/kube.go` - Kube tool with validation (new)
+- **NEW:** `cmd/pprof-test-std/main.go` - Standard HTTP pprof test server
+- `cmd/pprof-test/main.go` - Echo-based pprof test server with improvements
+- `pkg/tools/delve/delve.go` - Enhanced Delve tool with session support
+- `pkg/tools/delve/delve_test.go` - Updated test suite for session features
+
+**Previously Added Files:**
+- `pkg/tools/sshexec/sshexec_test.go` - Complete test suite for SSH exec tool
+- `pkg/tools/pprof/pprof_test.go` - Complete test suite for pprof tool
+- `pkg/tools/kube/kube_test.go` - Complete test suite for Kube tool
+- `pkg/tools/sysinfo/sysinfo_test.go` - Complete test suite for System info tool
+- `.golangci.yml` - Linter configuration
+- `cmd/debugger/main.go` - Main server implementation
+- `go.mod` / `go.sum` - Dependencies with validator and testify
+- `pkg/connectors/ssh/ssh.go` - SSH connector
+- `pkg/tools/pprof/pprof.go` - pprof tool with validation
+- `pkg/tools/sshexec/sshexec.go` - SSH exec tool with validation
+- `pkg/tools/sysinfo/sysinfo.go` - System info tool with validation
+- `pkg/tools/kube/kube.go` - Kube tool with validation
 
 ## Integration
 
@@ -221,8 +243,15 @@ dlv debug --accept-multiclient --headless --listen=:2345
 # Or attach to running process
 dlv attach <PID> --accept-multiclient --headless --listen=:2345
 
-# Agent usage
+# Legacy single-command mode
 delve Command=help
+
+# Session-based debugging
+delve SessionID=debug1 Action=connect Host=localhost Port=2345
+delve SessionID=debug1 Action=command Command=continue
+delve SessionID=debug1 Action=command Command="break main.main"
+delve SessionID=debug1 Action=command Command=locals  
+delve SessionID=debug1 Action=disconnect
 ```
 
 ### pprof Integration
@@ -289,11 +318,16 @@ sysinfo SSHHost=192.168.1.100 SSHUser=admin
 
 ### Completed Features
 - ✅ MCP server framework with HTTP transport
-- ✅ Delve debugger tool with full command support
+- ✅ **NEW:** Delve debugger tool with session-based persistent connections
+- ✅ **NEW:** Session management with automatic cleanup and timeout (30 minutes)
+- ✅ **NEW:** Three-mode Delve operations: connect, disconnect, command
+- ✅ **NEW:** Background session monitoring and cleanup goroutines
+- ✅ **NEW:** Enhanced pprof test applications (standard HTTP and Echo-based)
+- ✅ Delve debugger tool with full command support (legacy mode)
 - ✅ pprof profiler tool with multiple profile types
 - ✅ SSH exec tool for remote binary execution
-- ✅ **NEW:** SSH exec tool process killing (PID and name-based)
-- ✅ **NEW:** Configurable kill signals (TERM, KILL, etc.)
+- ✅ SSH exec tool process killing (PID and name-based)
+- ✅ Configurable kill signals (TERM, KILL, etc.)
 - ✅ Kubernetes port-forward tool for pod/service debugging
 - ✅ System info tool for resource monitoring (local and remote)
 - ✅ SSH connector for shared SSH functionality
@@ -301,10 +335,10 @@ sysinfo SSHHost=192.168.1.100 SSHUser=admin
 - ✅ Pagination support for large outputs
 - ✅ Structured logging with debug mode
 - ✅ Build system with linting and golangci-lint configuration
-- ✅ **NEW:** Comprehensive input validation using go-playground/validator
-- ✅ **NEW:** Complete test coverage with stretchr/testify suite framework
-- ✅ **NEW:** Injection vulnerability protection for all user inputs
-- ✅ **NEW:** Test suites for all tools with validation testing
+- ✅ Comprehensive input validation using go-playground/validator
+- ✅ Complete test coverage with stretchr/testify suite framework
+- ✅ Injection vulnerability protection for all user inputs
+- ✅ Test suites for all tools with validation testing
 - ✅ Version management
 - ✅ Error handling and connection management
 - ✅ BSD 3-Clause licensing

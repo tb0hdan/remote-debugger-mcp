@@ -22,6 +22,7 @@ func (suite *DelveTestSuite) SetupTest() {
 	suite.tool = &Tool{
 		logger:    logger,
 		validator: suite.validator,
+		sessions:  make(map[string]*DelveSession),
 	}
 }
 
@@ -140,6 +141,63 @@ func (suite *DelveTestSuite) TestInputValidation() {
 			},
 			shouldError: false,
 		},
+		{
+			name: "valid session ID",
+			input: Input{
+				Host:      "localhost",
+				Port:      2345,
+				SessionID: "debug123",
+				Action:    "connect",
+			},
+			shouldError: false,
+		},
+		{
+			name: "invalid session ID with special chars",
+			input: Input{
+				Host:      "localhost",
+				Port:      2345,
+				SessionID: "debug-123!",
+				Action:    "connect",
+			},
+			shouldError: true,
+			errorMsg:    "validation error",
+		},
+		{
+			name: "valid action connect",
+			input: Input{
+				Host:      "localhost",
+				Port:      2345,
+				SessionID: "debug123",
+				Action:    "connect",
+			},
+			shouldError: false,
+		},
+		{
+			name: "valid action disconnect",
+			input: Input{
+				SessionID: "debug123",
+				Action:    "disconnect",
+			},
+			shouldError: false,
+		},
+		{
+			name: "valid action command",
+			input: Input{
+				SessionID: "debug123",
+				Action:    "command",
+				Command:   "continue",
+			},
+			shouldError: false,
+		},
+		{
+			name: "invalid action",
+			input: Input{
+				SessionID: "debug123",
+				Action:    "invalid",
+			},
+			shouldError: true,
+			errorMsg:    "validation error",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -214,6 +272,37 @@ func (suite *DelveTestSuite) TestNewCreatesValidTool() {
 	suite.True(ok)
 	suite.NotNil(delveTool.validator)
 	suite.NotNil(delveTool.logger)
+	suite.NotNil(delveTool.sessions)
+}
+
+func (suite *DelveTestSuite) TestSessionManagement() {
+	ctx := context.Background()
+	session := &mcp.ServerSession{}
+
+	// Test disconnect non-existent session
+	params := &mcp.CallToolParamsFor[Input]{
+		Arguments: Input{
+			SessionID: "nonexistent",
+			Action:    "disconnect",
+		},
+	}
+	
+	_, err := suite.tool.DelveHandler(ctx, session, params)
+	suite.Error(err)
+	suite.Contains(err.Error(), "not found")
+
+	// Test command on non-existent session
+	params = &mcp.CallToolParamsFor[Input]{
+		Arguments: Input{
+			SessionID: "nonexistent",
+			Action:    "command",
+			Command:   "help",
+		},
+	}
+	
+	_, err = suite.tool.DelveHandler(ctx, session, params)
+	suite.Error(err)
+	suite.Contains(err.Error(), "not found")
 }
 
 func TestDelveTestSuite(t *testing.T) {

@@ -18,8 +18,10 @@ func main() {
 	srv.Use(middleware.Logger())
 	srv.Use(middleware.Recover())
 	srv.HideBanner = true
+	srv.HidePort = true
 	srv.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Hello, World!")
 	})
+	log.Println("Starting web application server on localhost:8080")
 	srv.Logger.Fatal(srv.Start(":8080"))
 }

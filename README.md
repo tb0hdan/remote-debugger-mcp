@@ -6,7 +6,7 @@ This is a Model Context Protocol (MCP) server that runs on your machine and prov
 
 Available tools:
 
-- [delve](https://github.com/go-delve/delve) - non-interactive commands only
+- [delve](https://github.com/go-delve/delve) - now with session support
 - kube - port-forwarding to Kubernetes clusters (requires kubectl configured)
 - [pprof](https://pkg.go.dev/net/http/pprof)
 - sshexec - requires SSH access already configured
@@ -149,7 +149,10 @@ Then fetch profiling information using pprof tool, show it here, terminate remot
 
 Enabling pprof in your application exposes sensitive information about your application's performance and behavior. 
 To ensure that access to pprof endpoints is restricted to trusted users only, use a separate web framework, that is
-not affected by pprof's `init()` function. For sample code, see [cmd/pprof-test/main.go](cmd/pprof-test/main.go).
+not affected by pprof's `init()` function. For sample code, see:
+
+- [cmd/pprof-test/main.go](cmd/pprof-test/main.go) - with labstack/echo.
+- [cmd/pprof-test-std/main.go](cmd/pprof-test-std/main.go) - with standard net/http.
 
 ### General security
 Consider using authentication mechanisms or network-level restrictions (e.g., firewalls, VPNs) to limit access.
