@@ -152,15 +152,24 @@ func (suite *DelveTestSuite) TestInputValidation() {
 			shouldError: false,
 		},
 		{
-			name: "invalid session ID with special chars",
+			name: "valid session ID with dash",
 			input: Input{
 				Host:      "localhost",
 				Port:      2345,
-				SessionID: "debug-123!",
+				SessionID: "debug-123",
 				Action:    "connect",
 			},
-			shouldError: true,
-			errorMsg:    "validation error",
+			shouldError: false,
+		},
+		{
+			name: "valid session ID with underscore",
+			input: Input{
+				Host:      "localhost",
+				Port:      2345,
+				SessionID: "debug_123_test",
+				Action:    "connect",
+			},
+			shouldError: false,
 		},
 		{
 			name: "valid action connect",
